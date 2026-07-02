@@ -312,7 +312,7 @@ const AIRSPACE_LAYERS = [
   <div style="width:100%;display:flex;align-items:stretch;gap:1px;background:var(--border);border-radius:2px;overflow:hidden">
     <!-- GS (左側) -->
     <div style="background:var(--bg);padding:10px 8px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:64px;flex-shrink:0">
-      <div class="digi-lbl">GS</div>
+      <div class="digi-lbl" id="gs-lbl">GS</div>
       <div style="display:flex;align-items:center;justify-content:center">
         <input id="gs-input" type="number" value="120" min="1" max="999" oninput="onGsChange()"
           style="width:52px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:18px;text-align:center;outline:none;padding:0 2px;">
@@ -416,6 +416,8 @@ let searchQ = '';
 let track = null;   // 進行方向（磁方位トラック、null=不明）
 let lastFix = null; // トラック算出用の前回位置
 const MAGVAR = 7;   // 磁気偏差（西偏7° → 磁方位=真方位+7）※calcBrgにも同値が組み込み済み
+let gpsKt = null;   // GPS対地速度（kt、null=不明）
+let gsAuto = false; // trueのときGPS速度でETE/ETAを自動計算（60kt超でON、55kt未満でOFF）
 
 // ── Math ─────────────────────────────────────────────────────────────────────
 function calcNM(la1,lo1,la2,lo2){
@@ -460,6 +462,13 @@ function startGPS(){
       if(!lastFix || calcNM(lastFix.lat,lastFix.lon,pos.lat,pos.lon)>0.005){
         lastFix={lat:pos.lat,lon:pos.lon};
       }
+      // GPS対地速度（m/s → kt）。60kt超なら手動GSの代わりに自動使用
+      const spd=p.coords.speed;
+      gpsKt=(spd!=null && !isNaN(spd)) ? spd*1.94384 : null;
+      if(gpsKt==null){ gsAuto=false; }
+      else if(gpsKt>60){ gsAuto=true; }
+      else if(gpsKt<55){ gsAuto=false; }
+      updateGsDisplay();
       document.getElementById('gps-coords').style.color='var(--green)';
       document.getElementById('gps-coords').textContent=fmtCoord(pos.lat,'NS')+' '+fmtCoord(pos.lon,'EW');
       document.getElementById('gps-acc').textContent='±'+pos.acc+'m';
@@ -585,7 +594,8 @@ function updateHSI(){
   const active = !!(pos && selWp);
   const brg  = active ? calcBrg(pos.lat,pos.lon,selWp.lat,selWp.lon) : 0;
   const dist = active ? calcNM(pos.lat,pos.lon,selWp.lat,selWp.lon) : 0;
-  const ete  = fmtEte(dist, gs);
+  const g    = effGs();
+  const ete  = fmtEte(dist, g);
 
   drawHSI(track, brg, active);
 
@@ -593,8 +603,8 @@ function updateHSI(){
   document.getElementById('d-dist').textContent = active ? dist.toFixed(1) : '---';
   document.getElementById('d-ete').textContent  = active ? ete : '--:--';
   // ETA JST
-  if(active && gs>0 && dist>0){
-    const arrMs = Date.now() + (dist/gs)*3600000;
+  if(active && g>0 && dist>0){
+    const arrMs = Date.now() + (dist/g)*3600000;
     const jst = new Date(arrMs + 9*3600000);
     document.getElementById('d-eta').textContent =
       String(jst.getUTCHours()).padStart(2,'0')+':'+String(jst.getUTCMinutes()).padStart(2,'0');
@@ -639,9 +649,29 @@ function clearSel(){
 }
 
 // ── GS ───────────────────────────────────────────────────────────────────────
+// ETE/ETA計算に使う実効GS: GPS速度が60kt超のときはGPS実速度、それ以外は手動設定値
+function effGs(){
+  return (gsAuto && gpsKt!=null) ? gpsKt : gs;
+}
 function onGsChange(){
   gs = parseInt(document.getElementById('gs-input').value)||1;
   updateHSI();
+}
+function updateGsDisplay(){
+  const inp=document.getElementById('gs-input');
+  const lbl=document.getElementById('gs-lbl');
+  if(gsAuto && gpsKt!=null){
+    inp.value=Math.round(gpsKt);
+    inp.disabled=true;
+    inp.style.color='var(--green)';
+    lbl.textContent='GS(GPS)';
+    lbl.style.color='var(--green)';
+  }else{
+    if(inp.disabled){ inp.disabled=false; inp.value=gs; }
+    inp.style.color='var(--accent)';
+    lbl.textContent='GS';
+    lbl.style.color='';
+  }
 }
 
 // ── File Import ───────────────────────────────────────────────────────────────
@@ -1205,8 +1235,8 @@ function updateMap(){
     routeLine.setLatLngs([[pos.lat,pos.lon],[selWp.lat,selWp.lon]]);
     const brg  = calcBrg(pos.lat,pos.lon,selWp.lat,selWp.lon);
     const dist = calcNM(pos.lat,pos.lon,selWp.lat,selWp.lon);
-    const ete  = fmtEte(dist,gs);
-    const eta  = calcEta(dist,gs);
+    const ete  = fmtEte(dist,effGs());
+    const eta  = calcEta(dist,effGs());
     document.getElementById('mc-brg').textContent  = String(Math.round(brg)).padStart(3,'0')+'°M';
     document.getElementById('mc-dist').textContent = dist.toFixed(1);
     document.getElementById('mc-ete').textContent  = ete;
