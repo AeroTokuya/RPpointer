@@ -413,6 +413,9 @@ let gs = 120;
 let watchId = null;
 let filtered = [];
 let searchQ = '';
+let track = null;   // 進行方向（磁方位トラック、null=不明）
+let lastFix = null; // トラック算出用の前回位置
+const MAGVAR = 7;   // 磁気偏差（西偏7° → 磁方位=真方位+7）※calcBrgにも同値が組み込み済み
 
 // ── Math ─────────────────────────────────────────────────────────────────────
 function calcNM(la1,lo1,la2,lo2){
@@ -446,6 +449,17 @@ function startGPS(){
   watchId = navigator.geolocation.watchPosition(
     p=>{
       pos={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+      // 進行方向（トラック）: GPSのheadingを優先、無い端末は位置の変化から算出
+      const h=p.coords.heading;
+      if(h!=null && !isNaN(h)){
+        track=(h+MAGVAR)%360;
+      } else if(lastFix && calcNM(lastFix.lat,lastFix.lon,pos.lat,pos.lon)>0.005){
+        // 約9m以上移動したら方位を計算（GPS誤差によるブレを抑制）
+        track=calcBrg(lastFix.lat,lastFix.lon,pos.lat,pos.lon);
+      }
+      if(!lastFix || calcNM(lastFix.lat,lastFix.lon,pos.lat,pos.lon)>0.005){
+        lastFix={lat:pos.lat,lon:pos.lon};
+      }
       document.getElementById('gps-coords').style.color='var(--green)';
       document.getElementById('gps-coords').textContent=fmtCoord(pos.lat,'NS')+' '+fmtCoord(pos.lon,'EW');
       document.getElementById('gps-acc').textContent='±'+pos.acc+'m';
@@ -468,7 +482,10 @@ function startGPS(){
 const canvas = document.getElementById('hsi-canvas');
 const ctx = canvas.getContext('2d');
 
-function drawHSI(brg, active){
+function drawHSI(trk, brg, hasWp){
+  // trk: 進行方向（磁方位トラック、null=不明→ノースアップ表示）
+  // brg: 目的地への磁方位（hasWpのとき矢印で表示）
+  const rot = trk==null ? 0 : trk;
   const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,r=W/2-6;
   ctx.clearRect(0,0,W,H);
 
@@ -493,8 +510,8 @@ function drawHSI(brg, active){
   }
   ctx.restore();
 
-  // Rotating compass rose
-  ctx.save();ctx.translate(cx,cy);ctx.rotate(-brg*Math.PI/180);
+  // Rotating compass rose（進行方向が上＝トラックアップ）
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(-rot*Math.PI/180);
   for(let i=0;i<360;i+=5){
     const a=i*Math.PI/180,isCard=i%90===0,isMaj=i%10===0;
     const len=isCard?14:isMaj?9:5,ri=r-2,ro=ri-len;
@@ -515,18 +532,25 @@ function drawHSI(brg, active){
   });
   ctx.restore();
 
-  // Course pointer (green, fixed up = bearing to WP)
-  if(active){
+  // 目的地方向の矢印（緑、進行方向に対する相対方位。真上＝目的地に向かっている）
+  if(hasWp){
+    const rel=(brg-rot)*Math.PI/180;
     const ar=r*0.80;
-    ctx.save();ctx.translate(cx,cy);
-    ctx.beginPath();ctx.moveTo(0,-ar);ctx.lineTo(-7,-ar+16);ctx.lineTo(7,-ar+16);ctx.closePath();
-    ctx.fillStyle='#00e676';ctx.shadowColor='#00e676';ctx.shadowBlur=14;ctx.fill();ctx.shadowBlur=0;
-    ctx.beginPath();ctx.moveTo(0,-ar+16);ctx.lineTo(0,ar*0.45);
-    ctx.strokeStyle='rgba(0,230,118,0.5)';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.stroke();ctx.setLineDash([]);
-    ctx.restore();
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(rel);
+    ctx.strokeStyle='#00e676';ctx.fillStyle='#00e676';
+    ctx.shadowColor='#00e676';ctx.shadowBlur=12;
+    // 矢印の軸
+    ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(0,ar*0.45);ctx.lineTo(0,-ar+14);ctx.stroke();
+    // 矢じり
+    ctx.beginPath();ctx.moveTo(0,-ar);ctx.lineTo(-9,-ar+20);ctx.lineTo(0,-ar+13);ctx.lineTo(9,-ar+20);ctx.closePath();ctx.fill();
+    // 尾翼
+    ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(-7,ar*0.45);ctx.lineTo(7,ar*0.45);ctx.stroke();
+    ctx.shadowBlur=0;ctx.restore();
   }
 
-  // Heading bug (orange triangle, fixed at top)
+  // Heading bug (orange triangle, fixed at top = 進行方向)
   ctx.save();ctx.translate(cx,cy);
   ctx.beginPath();
   ctx.moveTo(-6.5,-(r-2));ctx.lineTo(-6.5,-(r-13));
@@ -545,11 +569,11 @@ function drawHSI(brg, active){
   ctx.beginPath();ctx.moveTo(-8,16);ctx.lineTo(8,16);ctx.stroke();
   ctx.shadowBlur=0;ctx.restore();
 
-  // HDG readout
+  // TRK readout（現在の進行方位）
   ctx.font="bold 20px 'Share Tech Mono',monospace";
   ctx.fillStyle='#ff6b35';ctx.textAlign='center';
   ctx.shadowColor='#ff6b35';ctx.shadowBlur=12;
-  ctx.fillText(active?String(Math.round(brg)).padStart(3,'0')+'°':'---°',cx,cy+r*0.38);
+  ctx.fillText(trk!=null?String(Math.round(rot)%360).padStart(3,'0')+'°':'---°',cx,cy+r*0.38);
   ctx.shadowBlur=0;
 
   // inner ring
@@ -563,7 +587,7 @@ function updateHSI(){
   const dist = active ? calcNM(pos.lat,pos.lon,selWp.lat,selWp.lon) : 0;
   const ete  = fmtEte(dist, gs);
 
-  drawHSI(brg, active);
+  drawHSI(track, brg, active);
 
   document.getElementById('d-brg').textContent  = active ? String(Math.round(brg)).padStart(3,'0')+'°' : '---°';
   document.getElementById('d-dist').textContent = active ? dist.toFixed(1) : '---';
@@ -906,7 +930,7 @@ function tickClock(){
 setInterval(tickClock,1000);tickClock();
 
 // HSI idle animation when no GPS/WP
-setInterval(()=>{if(!pos||!selWp)drawHSI(0,false);},100);
+setInterval(()=>{if(!pos||!selWp)drawHSI(track,0,false);},100);
 
 
 
@@ -1252,7 +1276,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:'||['localhost','
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-drawHSI(0,false);
+drawHSI(null,0,false);
 loadDB();
 startGPS();
 switchTab('hsi'); // 初期タブ
