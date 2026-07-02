@@ -197,12 +197,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);touch-action
 
 /* ================= CITIES ================= */
 const CITIES = [
-  {name:'SHINJUKU / TOKYO', jp:'新宿',       lng:139.6950, lat:35.6890, alt:280, hdg:300},
-  {name:'MARUNOUCHI / TOKYO', jp:'東京駅',   lng:139.7700, lat:35.6790, alt:260, hdg:315},
-  {name:'SHIBUYA / TOKYO', jp:'渋谷',        lng:139.7030, lat:35.6580, alt:240, hdg:330},
-  {name:'UMEDA / OSAKA', jp:'大阪 梅田',     lng:135.4990, lat:34.6990, alt:260, hdg:315},
-  {name:'MEIEKI / NAGOYA', jp:'名古屋駅',    lng:136.8850, lat:35.1680, alt:260, hdg:290},
-  {name:'MANHATTAN / NYC', jp:'ニューヨーク', lng:-73.9840, lat:40.7440, alt:320, hdg:20},
+  {name:'SHINJUKU / TOKYO', jp:'新宿',       lng:139.6950, lat:35.6890, alt:160, hdg:300},
+  {name:'MARUNOUCHI / TOKYO', jp:'東京駅',   lng:139.7700, lat:35.6790, alt:150, hdg:315},
+  {name:'SHIBUYA / TOKYO', jp:'渋谷',        lng:139.7030, lat:35.6580, alt:130, hdg:330},
+  {name:'UMEDA / OSAKA', jp:'大阪 梅田',     lng:135.4990, lat:34.6990, alt:150, hdg:315},
+  {name:'MEIEKI / NAGOYA', jp:'名古屋駅',    lng:136.8850, lat:35.1680, alt:150, hdg:290},
+  {name:'MANHATTAN / NYC', jp:'ニューヨーク', lng:-73.9840, lat:40.7440, alt:220, hdg:20},
 ];
 
 /* ================= STATE ================= */
@@ -239,9 +239,21 @@ map.on('style.load', () => {
     'fog-ground-blend':0.85,
     'atmosphere-blend':['interpolate',['linear'],['zoom'],10,1,12,0.5,14,0.25],
   });
-  // スタイルに3Dビルが無い場合のフォールバック
+  // 3Dビルを強調: スタイル既定では低空(z14+)でしか描画されないため、
+  // より遠くから表示し、高さも誇張して立体感を出す
+  const EXAG = 1.35;
   const style = map.getStyle();
   const has3d = style.layers.some(l => l.type === 'fill-extrusion');
+  for (const l of style.layers) {
+    if (l.type !== 'fill-extrusion') continue;
+    map.setLayerZoomRange(l.id, 13, 24);
+    map.setPaintProperty(l.id, 'fill-extrusion-height',
+      ['*', EXAG, ['coalesce', ['get','render_height'], ['get','height'], 10]]);
+    map.setPaintProperty(l.id, 'fill-extrusion-base',
+      ['coalesce', ['get','render_min_height'], ['get','min_height'], 0]);
+    map.setPaintProperty(l.id, 'fill-extrusion-opacity', 1);
+  }
+  // スタイルに3Dビルが無い場合のフォールバック
   if (!has3d) {
     const srcEntry = Object.entries(style.sources).find(([,v]) => v.type === 'vector');
     if (srcEntry) {
@@ -249,8 +261,8 @@ map.on('style.load', () => {
         id:'rp-building-3d', type:'fill-extrusion', source:srcEntry[0],
         'source-layer':'building', minzoom:13,
         paint:{
-          'fill-extrusion-height':['coalesce',['get','render_height'],8],
-          'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
+          'fill-extrusion-height':['*',1.35,['coalesce',['get','render_height'],['get','height'],10]],
+          'fill-extrusion-base':['coalesce',['get','render_min_height'],['get','min_height'],0],
           'fill-extrusion-color':['interpolate',['linear'],['coalesce',['get','render_height'],8],
             0,'#9aa7b0', 60,'#b8c4cc', 200,'#dde6ec'],
           'fill-extrusion-opacity':1,
@@ -357,8 +369,8 @@ function tick(now) {
   S.pitchVis = lerp(S.pitchVis, input.fwd * 11, dt * 3);
   S.rollVis  = lerp(S.rollVis,  input.lat * 16 + input.yaw * 7, dt * 3);
 
-  // カメラ更新(機体位置=カメラ位置)
-  const camPitch = Math.max(55, Math.min(120, 90 - S.pitchVis));
+  // カメラ更新(機体位置=カメラ位置)。基準84°=やや下向きで街並みが見える
+  const camPitch = Math.max(50, Math.min(115, 84 - S.pitchVis));
   try {
     const opts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
       [S.lng, S.lat], S.alt, S.hdg, camPitch, S.rollVis);
