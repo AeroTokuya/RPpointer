@@ -206,11 +206,26 @@ const CITIES = [
 ];
 
 /* ================= STATE ================= */
+/* クラッシュや再読み込みに備えて前回位置から再開する */
+const SAVED = (() => {
+  try { return JSON.parse(localStorage.getItem('rpheli-state')); } catch { return null; }
+})();
 const S = {
-  lng:CITIES[0].lng, lat:CITIES[0].lat, alt:CITIES[0].alt, hdg:CITIES[0].hdg,
+  lng:SAVED?.lng ?? CITIES[0].lng, lat:SAVED?.lat ?? CITIES[0].lat,
+  alt:SAVED?.alt ?? CITIES[0].alt, hdg:SAVED?.hdg ?? CITIES[0].hdg,
   vf:0, vl:0, vv:0,        // 機体基準の速度 m/s (前, 右, 上)
   pitchVis:0, rollVis:0,   // 表示用の姿勢角(度)
 };
+function saveState() {
+  try {
+    localStorage.setItem('rpheli-state', JSON.stringify({
+      lng:S.lng, lat:S.lat, alt:S.alt, hdg:S.hdg,
+      name:document.getElementById('loc-name').textContent,
+    }));
+  } catch {}
+}
+setInterval(saveState, 2000);
+addEventListener('pagehide', saveState);
 const LIMIT = {vf:55, vb:22, vl:20, vv:13, yawRate:75, altMin:4, altMax:4000};
 
 /* 入力: -1..1 (fwd=前+, lat=右+, col=上+, yaw=右+) */
@@ -227,6 +242,10 @@ const map = new maplibregl.Map({
   interactive:false, attributionControl:{compact:true},
   fadeDuration:0,
   canvasContextAttributes:{antialias:true},
+  // メモリ対策: 高解像度端末でも描画解像度を抑え、タイルの保持数を減らす
+  pixelRatio:Math.min(window.devicePixelRatio || 1, 1.75),
+  maxTileCacheSize:96,
+  maxTileCacheZoomLevels:3,
 });
 
 map.on('style.load', () => {
@@ -243,6 +262,11 @@ map.on('style.load', () => {
   // より遠くから表示し、高さも誇張して立体感を出す
   const EXAG = 1.35;
   const style = map.getStyle();
+  // メモリ対策: 文字・アイコン類は地名ラベル以外すべて除去
+  // (POIや道路名のグリフ/アイコンはメモリ消費が大きく、飛行中はほぼ読めない)
+  for (const l of [...style.layers]) {
+    if (l.type === 'symbol' && !l.id.startsWith('place')) map.removeLayer(l.id);
+  }
   const has3d = style.layers.some(l => l.type === 'fill-extrusion');
   for (const l of style.layers) {
     if (l.type !== 'fill-extrusion') continue;
@@ -279,6 +303,9 @@ map.on('load', () => {
   last = performance.now();
   requestAnimationFrame(tick);
 });
+// WebGLコンテキスト喪失(メモリ逼迫等)時は保存済み位置から自動復帰
+map.getCanvas().addEventListener('webglcontextlost', () => { saveState(); location.reload(); });
+
 map.on('error', e => {
   const msg = document.getElementById('load-msg');
   if (msg && !running) msg.textContent = 'LOAD ERROR — 通信環境を確認してください';
@@ -411,6 +438,7 @@ CITIES.forEach(c => {
   menu.insertBefore(b, $('menu-close'));
 });
 $('menu-btn').addEventListener('click', () => menu.classList.add('open'));
+if (SAVED?.name) $('loc-name').textContent = SAVED.name;
 $('menu-close').addEventListener('click', () => menu.classList.remove('open'));
 </script>
 </body>
