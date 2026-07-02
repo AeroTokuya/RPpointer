@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RP-HELI 3D — Photoreal City Flight</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Sans+JP:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.126/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060b10;--surf:#0c1520;--border:#182538;
+  --accent:#00d4ff;--green:#00e676;--orange:#ff6b35;
+  --muted:#365060;--text:#afc8d8;--red:#ff7070;
+  --mono:'Share Tech Mono',monospace;
+  --sans:'Noto Sans JP',sans-serif;
+}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:var(--sans)}
+#cesium{position:fixed;inset:0}
+#cesium .cesium-viewer-bottom{opacity:0.85} /* Google/データ帰属表示(必須)は隠さない */
+
+/* ===== HUD ===== */
+#hud{position:fixed;inset:0;pointer-events:none;font-family:var(--mono);z-index:10}
+#topbar{
+  position:absolute;top:0;left:0;right:0;
+  display:flex;align-items:center;gap:14px;padding:10px 16px;
+  background:linear-gradient(rgba(6,11,16,0.85),rgba(6,11,16,0));
+}
+.logo{font-size:17px;color:var(--accent);letter-spacing:4px;text-shadow:0 0 16px rgba(0,212,255,0.4)}
+.logo-sub{font-size:8px;color:var(--muted);letter-spacing:3px;margin-top:1px}
+#loc-name{margin-left:auto;font-size:11px;color:var(--green);letter-spacing:1px}
+#menu-btn,#key-btn{
+  pointer-events:auto;cursor:pointer;
+  background:rgba(12,21,32,0.9);border:1px solid var(--border);border-radius:3px;
+  color:var(--accent);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:6px 12px;
+}
+#key-btn{color:var(--muted)}
+
+#inst{
+  position:absolute;top:52px;left:0;right:0;
+  display:flex;justify-content:center;gap:10px;
+}
+.gauge{
+  background:rgba(6,11,16,0.72);border:1px solid var(--border);border-radius:3px;
+  padding:5px 14px;min-width:86px;text-align:center;
+}
+.gauge .lbl{font-size:7px;color:var(--muted);letter-spacing:2px}
+.gauge .val{font-size:18px;color:var(--accent);letter-spacing:1px;line-height:1.2}
+.gauge .unit{font-size:8px;color:var(--muted)}
+#g-hdg .val{color:var(--green)}
+#g-vsi .val.up{color:var(--green)}
+#g-vsi .val.dn{color:var(--orange)}
+
+#xhair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0.85}
+
+/* keyboard help */
+#keys{
+  position:absolute;left:16px;bottom:40px;
+  background:rgba(6,11,16,0.78);border:1px solid var(--border);border-radius:3px;
+  padding:10px 14px;font-size:10px;line-height:1.9;letter-spacing:1px;
+}
+#keys .k{display:inline-block;min-width:52px;color:var(--accent)}
+#keys .t{color:var(--text)}
+#keys h3{font-size:8px;color:var(--muted);letter-spacing:2px;margin-bottom:4px}
+#keys.hidden{display:none}
+
+/* status message */
+#status{
+  position:absolute;left:50%;bottom:44px;transform:translateX(-50%);
+  background:rgba(6,11,16,0.85);border:1px solid var(--border);border-radius:3px;
+  font-size:11px;color:var(--orange);padding:8px 16px;letter-spacing:1px;display:none;
+}
+
+/* ===== overlays ===== */
+.overlay{
+  position:fixed;inset:0;z-index:60;background:rgba(6,11,16,0.92);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  backdrop-filter:blur(4px);font-family:var(--mono);
+}
+.overlay.open{display:flex}
+.overlay h2{font-size:13px;color:var(--muted);letter-spacing:4px;margin-bottom:10px}
+.city-btn{
+  width:300px;background:var(--surf);border:1px solid var(--border);border-radius:3px;
+  color:var(--text);font-family:var(--mono);font-size:12px;letter-spacing:1px;
+  padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+}
+.city-btn:hover{border-color:var(--accent);color:var(--accent)}
+.city-btn .cc{font-size:9px;color:var(--muted)}
+.overlay .close{
+  margin-top:16px;background:none;border:1px solid rgba(255,68,68,0.35);border-radius:2px;
+  color:var(--red);font-family:var(--mono);font-size:10px;letter-spacing:2px;
+  padding:6px 24px;cursor:pointer;
+}
+
+/* key form */
+#keyform{z-index:80}
+#keyform .panel{
+  width:min(560px,92vw);background:var(--surf);border:1px solid var(--border);border-radius:4px;
+  padding:26px 28px;
+}
+#keyform .logo{font-size:20px;margin-bottom:2px}
+#keyform p{font-family:var(--sans);font-size:12px;line-height:1.9;color:var(--text);margin:12px 0}
+#keyform ol{font-family:var(--sans);font-size:12px;line-height:2;color:var(--text);padding-left:20px;margin:8px 0 14px}
+#keyform a{color:var(--accent)}
+#keyform code{font-family:var(--mono);color:var(--green);font-size:11px}
+#gkey{
+  width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  color:var(--green);font-family:var(--mono);font-size:13px;padding:10px 12px;letter-spacing:1px;
+}
+#gkey:focus{outline:none;border-color:var(--accent)}
+#key-go{
+  margin-top:12px;width:100%;background:rgba(0,212,255,0.12);border:1px solid var(--accent);
+  border-radius:3px;color:var(--accent);font-family:var(--mono);font-size:12px;
+  letter-spacing:3px;padding:11px;cursor:pointer;
+}
+#key-go:hover{background:rgba(0,212,255,0.22)}
+#key-err{font-family:var(--sans);font-size:11px;color:var(--red);margin-top:10px;display:none}
+
+/* loading */
+#loading{
+  position:fixed;inset:0;z-index:70;background:var(--bg);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  font-family:var(--mono);
+}
+#loading.show{display:flex}
+#loading .logo{font-size:24px}
+#load-msg{font-size:10px;color:var(--muted);letter-spacing:2px}
+.spinner{
+  width:34px;height:34px;border-radius:50%;
+  border:2px solid var(--border);border-top-color:var(--accent);
+  animation:spin 0.9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="cesium"></div>
+
+<div id="hud">
+  <div id="topbar">
+    <div>
+      <div class="logo">RP-HELI 3D</div>
+      <div class="logo-sub">PHOTOREAL CITY FLIGHT</div>
+    </div>
+    <div id="loc-name">SHINJUKU / TOKYO</div>
+    <button id="menu-btn" title="エリア選択 [M]">MAP [M]</button>
+    <button id="key-btn" title="APIキーを変更">KEY</button>
+  </div>
+  <div id="inst">
+    <div class="gauge" id="g-alt"><div class="lbl">ALT (AGL)</div><div class="val" id="v-alt">0</div><div class="unit">m</div></div>
+    <div class="gauge" id="g-spd"><div class="lbl">SPD</div><div class="val" id="v-spd">0</div><div class="unit">km/h</div></div>
+    <div class="gauge" id="g-hdg"><div class="lbl">HDG</div><div class="val" id="v-hdg">000</div><div class="unit" id="v-hdgc">N</div></div>
+    <div class="gauge" id="g-vsi"><div class="lbl">V/S</div><div class="val" id="v-vsi">0.0</div><div class="unit">m/s</div></div>
+  </div>
+  <svg id="xhair" width="56" height="56" viewBox="0 0 56 56" fill="none">
+    <line x1="4" y1="28" x2="18" y2="28" stroke="#00d4ff" stroke-width="1.5"/>
+    <line x1="38" y1="28" x2="52" y2="28" stroke="#00d4ff" stroke-width="1.5"/>
+    <line x1="28" y1="34" x2="28" y2="42" stroke="#00d4ff" stroke-width="1.5"/>
+    <circle cx="28" cy="28" r="2.5" stroke="#00d4ff" stroke-width="1.5"/>
+  </svg>
+  <div id="keys">
+    <h3>CONTROLS [H]で表示切替</h3>
+    <div><span class="k">W / ↑</span><span class="t">前進</span>　<span class="k">S / ↓</span><span class="t">後退</span></div>
+    <div><span class="k">A / ←</span><span class="t">左旋回</span>　<span class="k">D / →</span><span class="t">右旋回</span></div>
+    <div><span class="k">Q / E</span><span class="t">左右スライド</span></div>
+    <div><span class="k">SPACE</span><span class="t">上昇</span>　<span class="k">SHIFT</span><span class="t">下降</span></div>
+    <div><span class="k">1-6</span><span class="t">エリア切替</span>　<span class="k">M</span><span class="t">マップ</span></div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div class="overlay" id="menu">
+  <h2>SELECT AREA</h2>
+  <button class="close" id="menu-close">CLOSE [ESC]</button>
+</div>
+
+<div class="overlay" id="keyform">
+  <div class="panel">
+    <div class="logo">RP-HELI 3D</div>
+    <div class="logo-sub">SETUP — GOOGLE MAPS API KEY</div>
+    <p>写真リアルな3D都市(Google Photorealistic 3D Tiles)の表示には、あなた自身の Google Maps Platform APIキーが必要です。キーはこのブラウザ内(localStorage)にのみ保存され、外部に送信されるのはGoogleへの地図リクエストだけです。</p>
+    <ol>
+      <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> でプロジェクトを作成(要アカウント・無料枠あり)</li>
+      <li>「APIとサービス → ライブラリ」で <code>Map Tiles API</code> を有効化</li>
+      <li>「認証情報」で APIキー を作成してコピー</li>
+    </ol>
+    <input id="gkey" type="text" placeholder="AIza... で始まるAPIキーを貼り付け" autocomplete="off" spellcheck="false">
+    <button id="key-go">FLIGHT START</button>
+    <div id="key-err"></div>
+  </div>
+</div>
+
+<div id="loading">
+  <div class="logo">RP-HELI 3D</div>
+  <div class="spinner"></div>
+  <div id="load-msg">LOADING PHOTOREAL CITY...</div>
+</div>
+
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.126/Build/Cesium/Cesium.js"></script>
+<script>
+'use strict';
+
+/* ================= CITIES ================= */
+const CITIES = [
+  {name:'SHINJUKU / TOKYO', jp:'新宿',       lng:139.6950, lat:35.6890, alt:320, hdg:300},
+  {name:'MARUNOUCHI / TOKYO', jp:'東京駅',   lng:139.7700, lat:35.6790, alt:300, hdg:315},
+  {name:'SHIBUYA / TOKYO', jp:'渋谷',        lng:139.7030, lat:35.6580, alt:280, hdg:330},
+  {name:'UMEDA / OSAKA', jp:'大阪 梅田',     lng:135.4990, lat:34.6990, alt:300, hdg:315},
+  {name:'MEIEKI / NAGOYA', jp:'名古屋駅',    lng:136.8850, lat:35.1680, alt:300, hdg:290},
+  {name:'MANHATTAN / NYC', jp:'ニューヨーク', lng:-73.9840, lat:40.7440, alt:380, hdg:20},
+];
+
+/* ================= STATE ================= */
+const SAVED = (() => {
+  try { return JSON.parse(localStorage.getItem('rpheli3d-state')); } catch { return null; }
+})();
+const S = {
+  lng:SAVED?.lng ?? CITIES[0].lng, lat:SAVED?.lat ?? CITIES[0].lat,
+  alt:SAVED?.alt ?? CITIES[0].alt, hdg:SAVED?.hdg ?? CITIES[0].hdg,
+  vf:0, vl:0, vv:0,        // 機体基準の速度 m/s (前, 右, 上)
+  pitchVis:0, rollVis:0,   // 表示用の姿勢角(度)
+};
+const LIMIT = {vf:80, vb:25, vl:30, vv:15, yawRate:70, altMax:6000};
+const input = {fwd:0, lat:0, col:0, yaw:0};
+let groundH = null;  // 直下の地表高(サンプリング)
+
+function saveState() {
+  try {
+    localStorage.setItem('rpheli3d-state', JSON.stringify({
+      lng:S.lng, lat:S.lat, alt:S.alt, hdg:S.hdg,
+      name:document.getElementById('loc-name').textContent,
+    }));
+  } catch {}
+}
+setInterval(saveState, 2000);
+addEventListener('pagehide', saveState);
+
+/* ================= API KEY ================= */
+const $ = id => document.getElementById(id);
+function getKey() {
+  const p = new URLSearchParams(location.search).get('key');
+  if (p) {
+    try { localStorage.setItem('rpheli3d-gkey', p); } catch {}
+    history.replaceState(null, '', location.pathname); // URLからキーを消す
+    return p;
+  }
+  try { return localStorage.getItem('rpheli3d-gkey'); } catch { return null; }
+}
+
+/* ================= CESIUM ================= */
+let viewer = null, tileset = null, running = false;
+
+async function startFlight(key) {
+  $('keyform').classList.remove('open');
+  $('loading').classList.add('show');
+  $('load-msg').textContent = 'LOADING PHOTOREAL CITY...';
+
+  try {
+    if (!viewer) {
+      viewer = new Cesium.Viewer('cesium', {
+        animation:false, timeline:false, baseLayerPicker:false, geocoder:false,
+        homeButton:false, sceneModePicker:false, navigationHelpButton:false,
+        fullscreenButton:false, infoBox:false, selectionIndicator:false,
+        baseLayer:false, skyBox:false, targetFrameRate:60,
+      });
+      viewer.scene.screenSpaceCameraController.enableInputs = false; // 操縦はキーボードのみ
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1c262e');
+      viewer.scene.skyAtmosphere.show = true;
+      viewer.scene.fog.enabled = true;
+      viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
+    }
+    Cesium.GoogleMaps.defaultApiKey = key;
+    if (tileset) { viewer.scene.primitives.remove(tileset); tileset = null; }
+    tileset = await Cesium.createGooglePhotorealistic3DTileset();
+    viewer.scene.primitives.add(tileset);
+    viewer.scene.globe.show = false; // Googleタイルが地形ごと含むため二重描画を防ぐ
+
+    try { localStorage.setItem('rpheli3d-gkey', key); } catch {}
+    $('loading').classList.remove('show');
+    if (!running) { running = true; last = performance.now(); requestAnimationFrame(tick); }
+  } catch (err) {
+    console.error(err);
+    $('loading').classList.remove('show');
+    $('keyform').classList.add('open');
+    const e = $('key-err');
+    e.style.display = 'block';
+    e.textContent = '読み込みに失敗しました。APIキーが正しいか、Map Tiles API が有効になっているか確認してください。(' + (err.message || err) + ')';
+  }
+}
+
+/* ================= KEYBOARD ================= */
+const keys = {};
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  keys[e.code] = true;
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyM') menuEl.classList.toggle('open');
+  if (e.code === 'Escape') menuEl.classList.remove('open');
+  if (e.code === 'KeyH') $('keys').classList.toggle('hidden');
+  if (/^Digit[1-6]$/.test(e.code)) teleport(CITIES[Number(e.code.slice(5)) - 1]);
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+function applyKeys() {
+  const k = keys;
+  input.fwd = (k.KeyW || k.ArrowUp) ? 1 : (k.KeyS || k.ArrowDown) ? -1 : 0;
+  input.yaw = (k.KeyA || k.ArrowLeft) ? -1 : (k.KeyD || k.ArrowRight) ? 1 : 0;
+  input.lat = k.KeyQ ? -1 : k.KeyE ? 1 : 0;
+  input.col = k.Space ? 1 : (k.ShiftLeft || k.ShiftRight) ? -1 : 0;
+}
+
+/* ================= PHYSICS + RENDER ================= */
+let last = 0;
+const lerp = (a, b, t) => a + (b - a) * Math.min(1, t);
+
+function tick(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  applyKeys();
+
+  S.hdg = (S.hdg + input.yaw * LIMIT.yawRate * dt + 360) % 360;
+
+  const tvf = input.fwd >= 0 ? input.fwd * LIMIT.vf : input.fwd * LIMIT.vb;
+  S.vf = lerp(S.vf, tvf,                  dt * 1.8);
+  S.vl = lerp(S.vl, input.lat * LIMIT.vl, dt * 1.8);
+  S.vv = lerp(S.vv, input.col * LIMIT.vv, dt * 2.4);
+
+  const h = S.hdg * Math.PI / 180;
+  const dE = (S.vf * Math.sin(h) + S.vl * Math.cos(h)) * dt;
+  const dN = (S.vf * Math.cos(h) - S.vl * Math.sin(h)) * dt;
+  S.lat += dN / 111320;
+  S.lng += dE / (111320 * Math.cos(S.lat * Math.PI / 180));
+  S.alt = Math.min(LIMIT.altMax, S.alt + S.vv * dt);
+
+  // 地表サンプリングによる衝突回避(地面から3m未満に潜らない)
+  if (groundH !== null && S.alt < groundH + 3) { S.alt = groundH + 3; if (S.vv < 0) S.vv = 0; }
+
+  S.pitchVis = lerp(S.pitchVis, input.fwd * 10, dt * 3);
+  S.rollVis  = lerp(S.rollVis,  input.lat * 14 + input.yaw * 8, dt * 3);
+
+  if (viewer) {
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(S.lng, S.lat, S.alt),
+      orientation: {
+        heading: Cesium.Math.toRadians(S.hdg),
+        pitch:   Cesium.Math.toRadians(-8 - S.pitchVis),  // 基準やや下向き
+        roll:    Cesium.Math.toRadians(S.rollVis),
+      },
+    });
+  }
+
+  updateHUD();
+  requestAnimationFrame(tick);
+}
+
+/* 地表高のサンプリング(毎フレームは重いので間引く) */
+setInterval(() => {
+  if (!viewer || !tileset) return;
+  try {
+    const carto = Cesium.Cartographic.fromDegrees(S.lng, S.lat);
+    const hgt = viewer.scene.sampleHeight(carto, [], 1.0);
+    if (hgt !== undefined && Number.isFinite(hgt)) groundH = hgt;
+  } catch {}
+}, 500);
+
+/* ================= HUD ================= */
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function updateHUD() {
+  const agl = groundH !== null ? S.alt - groundH : S.alt;
+  $('v-alt').textContent = Math.round(agl);
+  $('v-spd').textContent = Math.round(Math.hypot(S.vf, S.vl) * 3.6);
+  $('v-hdg').textContent = String(Math.round(S.hdg) % 360).padStart(3, '0');
+  $('v-hdgc').textContent = COMPASS[Math.round(S.hdg / 22.5) % 16];
+  const vsi = $('v-vsi');
+  vsi.textContent = (S.vv >= 0 ? '+' : '') + S.vv.toFixed(1);
+  vsi.classList.toggle('up', S.vv > 0.5);
+  vsi.classList.toggle('dn', S.vv < -0.5);
+}
+
+/* ================= CITY MENU ================= */
+const menuEl = $('menu');
+function teleport(c) {
+  S.lng = c.lng; S.lat = c.lat; S.alt = c.alt; S.hdg = c.hdg;
+  S.vf = S.vl = S.vv = 0; S.pitchVis = S.rollVis = 0;
+  groundH = null;
+  $('loc-name').textContent = c.name;
+  menuEl.classList.remove('open');
+}
+CITIES.forEach((c, i) => {
+  const b = document.createElement('button');
+  b.className = 'city-btn';
+  b.innerHTML = `<span>[${i + 1}] ${c.jp}</span><span class="cc">${c.name}</span>`;
+  b.addEventListener('click', () => teleport(c));
+  menuEl.insertBefore(b, $('menu-close'));
+});
+$('menu-btn').addEventListener('click', () => menuEl.classList.toggle('open'));
+$('menu-close').addEventListener('click', () => menuEl.classList.remove('open'));
+if (SAVED?.name) $('loc-name').textContent = SAVED.name;
+
+/* ================= BOOT ================= */
+$('key-go').addEventListener('click', () => {
+  const key = $('gkey').value.trim();
+  if (!key) { const e = $('key-err'); e.style.display = 'block'; e.textContent = 'APIキーを入力してください。'; return; }
+  startFlight(key);
+});
+$('gkey').addEventListener('keydown', e => { if (e.key === 'Enter') $('key-go').click(); });
+$('key-btn').addEventListener('click', () => {
+  try { localStorage.removeItem('rpheli3d-gkey'); } catch {}
+  $('gkey').value = '';
+  $('keyform').classList.add('open');
+});
+
+const bootKey = getKey();
+if (bootKey) startFlight(bootKey);
+else $('keyform').classList.add('open');
+</script>
+</body>
+</html>
