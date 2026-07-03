@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>RP Transcribe → Notion</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; -webkit-text-size-adjust: 100%; }
+    html, body { height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
+      background: #060b10; color: #afc8d8;
+      touch-action: manipulation; overscroll-behavior: none;
+      padding: 16px; max-width: 520px; margin: 0 auto;
+    }
+    h1 { font-size: 16px; letter-spacing: 2px; color: #00d4ff; margin-bottom: 4px; }
+    .sub { font-size: 11px; color: #365060; margin-bottom: 16px; letter-spacing: 1px; }
+    .card { background: #0c1520; border: 1px solid #182538; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+    .label { font-size: 10px; color: #365060; letter-spacing: 1px; margin-bottom: 6px; }
+    input { width: 100%; background: #060b10; border: 1px solid #182538; color: #afc8d8;
+      font-family: ui-monospace, monospace; font-size: 12px; padding: 8px 10px; border-radius: 4px; margin-bottom: 8px; }
+    input:focus { outline: none; border-color: #00d4ff; }
+    label.row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+    #status { font-family: ui-monospace, monospace; font-size: 11px; color: #00e676; }
+    #transcript { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+      min-height: 80px; max-height: 200px; overflow-y: auto; }
+    #transcript .interim { color: #365060; }
+    .hint { font-size: 10px; color: #365060; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

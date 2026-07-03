@@ -1,0 +1,17 @@
+{
+  "package_id": "com.rppointer.glasstranscribe",
+  "edition": "202607",
+  "name": "RP Transcribe → Notion",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    { "name": "g2-microphone", "desc": "グラスのマイクで音声を取得し、その場で文字起こしします。" }
+  ],
+  "whitelist": [
+    "api.deepgram.com",
+    "api.notion.com"
+  ],
+  "supported_languages": ["ja", "en"]
+}
