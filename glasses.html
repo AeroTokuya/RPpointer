@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>RPglasses — Even Realities × Notion 文字起こし</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Sans+JP:wght@300;400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#060b10;--surf:#0c1520;--border:#182538;
+  --accent:#00d4ff;--green:#00e676;--orange:#ff6b35;
+  --muted:#365060;--text:#afc8d8;--red:#ff7070;
+  --mono:'Share Tech Mono',monospace;
+  --sans:'Noto Sans JP',sans-serif;
+}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--sans);
+  min-height:100vh;max-width:500px;margin:0 auto;font-size:13px;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,212,255,0.018) 1px,transparent 1px);
+  background-size:30px 30px;
+  padding-bottom:40px;
+}
+#header{
+  position:sticky;top:0;z-index:51;
+  background:rgba(6,11,16,0.97);border-bottom:1px solid var(--border);
+  padding:9px 14px;display:flex;align-items:center;gap:10px;
+  backdrop-filter:blur(8px);
+}
+.logo{font-family:var(--mono);font-size:17px;color:var(--accent);letter-spacing:4px;text-shadow:0 0 16px rgba(0,212,255,0.4)}
+.logo-sub{font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:3px;margin-top:1px}
+#mic-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--muted)}
+#mic-badge.on{color:var(--green)}
+.pulse-dot{width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
+#mic-badge.on .pulse-dot{animation:pulse 1.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
+
+.section{background:var(--surf);border-bottom:1px solid var(--border);padding:12px 14px}
+.sec-title{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:8px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.row:last-child{margin-bottom:0}
+
+button{
+  background:var(--bg);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:11px;letter-spacing:1px;
+  padding:9px 14px;border-radius:3px;cursor:pointer;
+}
+button:active{background:var(--border)}
+button.primary{border-color:var(--accent);color:var(--accent)}
+button.danger{border-color:var(--red);color:var(--red)}
+button.connected{border-color:var(--green);color:var(--green)}
+button:disabled{opacity:0.35;cursor:default}
+
+input[type=text],input[type=password],select{
+  background:var(--bg);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:3px;
+  flex:1;min-width:0;
+}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+label.inline{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer}
+label.inline input{accent-color:var(--accent)}
+.hint{font-size:10px;color:var(--muted);line-height:1.6}
+.field-label{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;width:72px;flex-shrink:0}
+
+#glass-preview{
+  background:#000;border:1px solid var(--border);border-radius:6px;
+  padding:10px 14px;min-height:96px;
+  font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--green);
+  white-space:pre-wrap;word-break:break-all;
+  text-shadow:0 0 8px rgba(0,230,118,0.5);
+}
+#transcript{
+  background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  padding:10px;min-height:110px;max-height:220px;overflow-y:auto;
+  font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;
+}
+#transcript .interim{color:var(--muted)}
+#transcript .ts{font-family:var(--mono);font-size:9px;color:var(--accent);margin-right:6px}
+
+#log{
+  background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  padding:8px 10px;max-height:130px;overflow-y:auto;
+  font-family:var(--mono);font-size:9px;line-height:1.7;color:var(--muted);
+  white-space:pre-wrap;word-break:break-all;
+}
+#log .err{color:var(--red)}
+#log .ok{color:var(--green)}
+
+details{margin-top:6px}
+summary{font-family:var(--mono);font-size:10px;color:var(--accent);cursor:pointer;letter-spacing:1px}
+pre.code{
+  background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  padding:8px;font-size:9px;line-height:1.5;overflow-x:auto;color:var(--text);
+  margin-top:6px;
+}
+.status-pill{
+  font-family:var(--mono);font-size:9px;letter-spacing:1px;
+  border:1px solid var(--border);border-radius:10px;padding:3px 9px;color:var(--muted);
+}
+.status-pill.ok{border-color:var(--green);color:var(--green)}
+.status-pill.err{border-color:var(--red);color:var(--red)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>
+    <div class="logo">RPglasses</div>
+    <div class="logo-sub">EVEN REALITIES × NOTION TRANSCRIBE</div>
+  </div>
+  <div id="mic-badge"><div class="pulse-dot"></div><span id="mic-state">MIC OFF</span></div>
+</div>
+
+<!-- ① グラス接続 -->
+<div class="section">
+  <div class="sec-title">① SMART GLASSES (EVEN G1 / G2) — Bluetooth接続</div>
+  <div class="row">
+    <button id="btn-conn-left">左を接続</button>
+    <button id="btn-conn-right">右を接続</button>
+    <span class="status-pill" id="pill-left">L: --</span>
+    <span class="status-pill" id="pill-right">R: --</span>
+  </div>
+  <div class="hint">
+    Chrome / Edge（Android・PC）で開いてください。ボタンを押すと機器選択が出るので
+    「Even G1_.._L_..」「Even G1_.._R_..」（G2 も同様）の左右をそれぞれ選択します。
+    片側だけの接続でも表示は可能です。
+  </div>
+</div>
+
+<!-- ② 文字起こし -->
+<div class="section">
+  <div class="sec-title">② 文字起こし（マイク → テキスト）</div>
+  <div class="row">
+    <button id="btn-mic" class="primary">文字起こし開始</button>
+    <select id="sel-lang">
+      <option value="ja-JP" selected>日本語 (ja-JP)</option>
+      <option value="en-US">English (en-US)</option>
+    </select>
+  </div>
+  <div class="row">
+    <label class="inline"><input type="checkbox" id="chk-glass" checked>グラスに表示する</label>
+    <label class="inline"><input type="checkbox" id="chk-notion" checked>Notionに記録する</label>
+    <label class="inline"><input type="checkbox" id="chk-ts" checked>時刻を付ける</label>
+  </div>
+  <div class="hint">
+    グラスをスマホのBluetoothオーディオ（ヘッドセット）としても接続しておくと、
+    グラスのマイクで拾った音声が入力になります。
+  </div>
+  <div class="sec-title" style="margin-top:12px">TRANSCRIPT</div>
+  <div id="transcript"></div>
+</div>
+
+<!-- ③ グラス表示プレビュー -->
+<div class="section">
+  <div class="sec-title">③ GLASSES DISPLAY PREVIEW（グラスに送っている内容）</div>
+  <div id="glass-preview">（未送信）</div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="manual-text" placeholder="手動でグラスへ送るテキスト">
+    <button id="btn-send-manual">送信</button>
+    <button id="btn-clear-glass">消去</button>
+  </div>
+</div>
+
+<!-- ④ Notion 設定 -->
+<div class="section">
+  <div class="sec-title">④ NOTION 設定</div>
+  <div class="row">
+    <span class="field-label">TOKEN</span>
+    <input type="password" id="in-token" placeholder="ntn_... / secret_...（インテグレーショントークン）">
+  </div>
+  <div class="row">
+    <span class="field-label">PAGE ID</span>
+    <input type="text" id="in-page" placeholder="記録先ページのID（URL末尾の32桁）">
+  </div>
+  <div class="row">
+    <span class="field-label">PROXY URL</span>
+    <input type="text" id="in-proxy" placeholder="https://xxxx.workers.dev（CORS中継、下記参照）">
+  </div>
+  <div class="row">
+    <button id="btn-save-settings">設定を保存</button>
+    <button id="btn-test-notion">接続テスト</button>
+    <span class="status-pill" id="pill-notion">NOTION: --</span>
+  </div>
+  <div class="hint">
+    Notionで「インテグレーション」を作成しトークンを取得 → 記録先ページを開き
+    「…」メニュー → 接続先に作成したインテグレーションを追加してください。
+    Notion APIはブラウザから直接呼べない（CORS制限）ため、中継用のPROXY URLが必要です。
+  </div>
+  <details>
+    <summary>▸ PROXY（Cloudflare Worker）の作り方</summary>
+    <div class="hint" style="margin-top:6px">
+      Cloudflareの無料アカウントで Worker を1つ作り、以下を貼り付けてデプロイし、
+      発行された <b>https://〜.workers.dev</b> を PROXY URL に設定します。
+      トークンはこのページ（ブラウザ）から自分のWorker経由でNotionにのみ送信されます。
+    </div>
+    <pre class="code">export default {
+  async fetch(req) {
+    const cors = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+      'Access-Control-Allow-Headers':
+        'Authorization,Content-Type,Notion-Version',
+    };
+    if (req.method === 'OPTIONS')
+      return new Response(null, { headers: cors });
+    const url = new URL(req.url);
+    url.hostname = 'api.notion.com';
+    url.protocol = 'https:';
+    url.port = '';
+    const res = await fetch(new Request(url, req));
+    const out = new Response(res.body, res);
+    for (const [k, v] of Object.entries(cors))
+      out.headers.set(k, v);
+    return out;
+  },
+};</pre>
+  </details>
+</div>
+
+<!-- ⑤ ログ -->
+<div class="section">
+  <div class="sec-title">⑤ LOG</div>
+  <div id="log"></div>
+</div>
+
+<script>
+'use strict';
+/* =========================================================================
+ * RPglasses — Even Realities G1/G2 × Notion 文字起こし
+ *
+ *  マイク音声 → Web Speech API で文字起こし
+ *    → Notion API（PATCH /v1/blocks/{page}/children）へ追記記録
+ *    → 同時に BLE でグラスのディスプレイへテキスト表示
+ *
+ *  BLEプロトコルは Even Realities 公式デモ(EvenDemoApp)で公開されている
+ *  G1 のテキスト表示コマンド(0x4E)に基づく。G2 も同系統のプロトコルだが、
+ *  相違があった場合は下記の定数を調整すること。
+ * ========================================================================= */
+
+// ---- BLE 定数（Nordic UART Service）------------------------------------
+const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_WRITE   = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // 端末→グラス
+const NUS_NOTIFY  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // グラス→端末
+
+const CMD_TEXT      = 0x4E;  // テキスト表示
+const CMD_HEARTBEAT = 0x25;  // キープアライブ
+const SCREEN_NEW_TEXT = 0x71; // 上位4bit:0x70=Text Show / 下位4bit:0x01=新規表示
+
+const TEXT_CHUNK = 180;      // 1パケットのテキストバイト数（MTU余裕をみて）
+const LINE_UNITS = 38;       // 1行の幅（半角=1・全角=2 で数える）
+const PAGE_LINES = 5;        // グラスの表示行数
+
+// ---- 状態 ----------------------------------------------------------------
+const glasses = { L: null, R: null };  // {device, writeChar}
+let bleSeq = 0;
+let heartbeatTimer = null;
+let recognition = null;
+let micOn = false;
+let notionQueue = [];       // Notion送信待ちの確定テキスト
+let notionTimer = null;
+let notionBusy = false;
+let sessionHeaderSent = false;
+
+const $ = id => document.getElementById(id);
+
+// ---- ログ ----------------------------------------------------------------
+function log(msg, cls) {
+  const el = document.createElement('div');
+  if (cls) el.className = cls;
+  el.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false }) + ' ' + msg;
+  $('log').appendChild(el);
+  while ($('log').childElementCount > 200) $('log').firstChild.remove();
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+// ---- 設定の保存/復元 ------------------------------------------------------
+const SETTINGS_KEY = 'rpglasses-settings';
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (s.token) $('in-token').value = s.token;
+    if (s.pageId) $('in-page').value = s.pageId;
+    if (s.proxy) $('in-proxy').value = s.proxy;
+    if (s.lang) $('sel-lang').value = s.lang;
+  } catch (e) {}
+}
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    token: $('in-token').value.trim(),
+    pageId: $('in-page').value.trim(),
+    proxy: $('in-proxy').value.trim(),
+    lang: $('sel-lang').value,
+  }));
+  log('設定を保存しました', 'ok');
+}
+function getSettings() {
+  return {
+    token: $('in-token').value.trim(),
+    pageId: normalizePageId($('in-page').value.trim()),
+    proxy: $('in-proxy').value.trim().replace(/\/+$/, ''),
+  };
+}
+// ページURLやハイフン付きIDから 8-4-4-4-12 形式のIDへ正規化
+function normalizePageId(v) {
+  const m = v.replace(/-/g, '').match(/[0-9a-f]{32}/i);
+  if (!m) return v;
+  const h = m[0];
+  return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+}
+
+// ==========================================================================
+// ① BLE — グラス接続
+// ==========================================================================
+async function connectSide(side) {
+  if (!navigator.bluetooth) {
+    log('このブラウザはWeb Bluetooth非対応です。Android/PCのChromeを使用してください。', 'err');
+    return;
+  }
+  try {
+    log((side === 'L' ? '左' : '右') + 'アームの機器を選択してください…');
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'Even' }],
+      optionalServices: [NUS_SERVICE],
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      glasses[side] = null;
+      updateGlassPills();
+      log(side + ' 側が切断されました', 'err');
+    });
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(NUS_SERVICE);
+    const writeChar = await service.getCharacteristic(NUS_WRITE);
+    try {
+      const notifyChar = await service.getCharacteristic(NUS_NOTIFY);
+      await notifyChar.startNotifications();
+    } catch (e) { /* 通知が取れなくても表示には支障なし */ }
+    glasses[side] = { device, writeChar };
+    updateGlassPills();
+    log(side + ' 側接続: ' + device.name, 'ok');
+    startHeartbeat();
+  } catch (e) {
+    if (e.name !== 'NotFoundError') log('接続失敗: ' + e.message, 'err');
+  }
+}
+
+function updateGlassPills() {
+  for (const side of ['L', 'R']) {
+    const pill = $(side === 'L' ? 'pill-left' : 'pill-right');
+    const btn = $(side === 'L' ? 'btn-conn-left' : 'btn-conn-right');
+    if (glasses[side]) {
+      pill.textContent = side + ': 接続中';
+      pill.className = 'status-pill ok';
+      btn.classList.add('connected');
+    } else {
+      pill.textContent = side + ': --';
+      pill.className = 'status-pill';
+      btn.classList.remove('connected');
+    }
+  }
+}
+
+async function bleWriteBoth(bytes) {
+  // 公式デモと同じく 左→右 の順で送る
+  for (const side of ['L', 'R']) {
+    const g = glasses[side];
+    if (!g) continue;
+    try {
+      await g.writeChar.writeValue(bytes);
+    } catch (e) {
+      log(side + ' 送信失敗: ' + e.message, 'err');
+    }
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => {
+    if (!glasses.L && !glasses.R) return;
+    const seq = bleSeq++ & 0xff;
+    bleWriteBoth(new Uint8Array([CMD_HEARTBEAT, 0x06, 0x00, seq, 0x04, seq]));
+  }, 8000);
+}
+
+// ---- テキスト表示（0x4E）--------------------------------------------------
+// 全角=2・半角=1 として LINE_UNITS 幅で折り返し
+function wrapLines(text) {
+  const lines = [];
+  for (const raw of text.split('\n')) {
+    let line = '', units = 0;
+    for (const ch of raw) {
+      const w = ch.charCodeAt(0) > 0xFF ? 2 : 1;
+      if (units + w > LINE_UNITS) { lines.push(line); line = ch; units = w; }
+      else { line += ch; units += w; }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+async function sendTextToGlasses(text) {
+  if (!glasses.L && !glasses.R) return;
+  // 直近 PAGE_LINES 行だけを表示（ライブ字幕として末尾を追従）
+  const lines = wrapLines(text);
+  const page = lines.slice(-PAGE_LINES).join('\n');
+  $('glass-preview').textContent = page || '（空）';
+
+  const data = new TextEncoder().encode(page);
+  const total = Math.max(1, Math.ceil(data.length / TEXT_CHUNK));
+  const seq = bleSeq++ & 0xff;
+  for (let i = 0; i < total; i++) {
+    const chunk = data.slice(i * TEXT_CHUNK, (i + 1) * TEXT_CHUNK);
+    const head = new Uint8Array([
+      CMD_TEXT, seq, total, i,
+      SCREEN_NEW_TEXT,
+      0x00, 0x00,   // new_char_pos (上位/下位)
+      0x01,         // current_page
+      0x01,         // max_page
+    ]);
+    const packet = new Uint8Array(head.length + chunk.length);
+    packet.set(head); packet.set(chunk, head.length);
+    await bleWriteBoth(packet);
+  }
+}
+
+// ==========================================================================
+// ② 文字起こし（Web Speech API）
+// ==========================================================================
+let liveTail = '';       // グラス表示用の直近テキスト（確定+暫定）
+let confirmedTail = '';  // 確定分のみの直近テキスト
+
+function setupRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    log('このブラウザは音声認識(Web Speech API)非対応です。Chromeを使用してください。', 'err');
+    return null;
+  }
+  const rec = new SR();
+  rec.lang = $('sel-lang').value;
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) {
+        const t = r[0].transcript.trim();
+        if (t) onFinalText(t);
+      } else {
+        interim += r[0].transcript;
+      }
+    }
+    // 画面の暫定表示
+    updateInterim(interim);
+    // グラスには「確定済みの末尾 + 暫定」をライブ表示
+    if ($('chk-glass').checked) {
+      liveTail = (confirmedTail + ' ' + interim).trim();
+      sendTextToGlasses(liveTail);
+    }
+  };
+  rec.onerror = (ev) => {
+    if (ev.error === 'no-speech' || ev.error === 'aborted') return;
+    log('音声認識エラー: ' + ev.error, 'err');
+  };
+  rec.onend = () => {
+    if (micOn) { try { rec.start(); } catch (e) {} } // 継続認識（自動再開）
+    else updateMicBadge();
+  };
+  return rec;
+}
+
+function toggleMic() {
+  if (micOn) {
+    micOn = false;
+    if (recognition) recognition.stop();
+    $('btn-mic').textContent = '文字起こし開始';
+    $('btn-mic').classList.add('primary');
+    $('btn-mic').classList.remove('danger');
+    flushNotion(); // 残りを送信
+    log('文字起こしを停止しました');
+  } else {
+    recognition = setupRecognition();
+    if (!recognition) return;
+    try { recognition.start(); } catch (e) { log('開始失敗: ' + e.message, 'err'); return; }
+    micOn = true;
+    sessionHeaderSent = false;
+    $('btn-mic').textContent = '停止';
+    $('btn-mic').classList.remove('primary');
+    $('btn-mic').classList.add('danger');
+    log('文字起こしを開始しました (' + $('sel-lang').value + ')', 'ok');
+  }
+  updateMicBadge();
+}
+
+function updateMicBadge() {
+  $('mic-badge').classList.toggle('on', micOn);
+  $('mic-state').textContent = micOn ? 'MIC ON' : 'MIC OFF';
+}
+
+// ---- 画面トランスクリプト --------------------------------------------------
+let interimEl = null;
+function updateInterim(text) {
+  if (!interimEl) {
+    interimEl = document.createElement('div');
+    interimEl.className = 'interim';
+    $('transcript').appendChild(interimEl);
+  }
+  interimEl.textContent = text;
+  $('transcript').scrollTop = $('transcript').scrollHeight;
+}
+
+function onFinalText(text) {
+  // 画面に確定行を追加
+  const div = document.createElement('div');
+  const ts = document.createElement('span');
+  ts.className = 'ts';
+  ts.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+  div.appendChild(ts);
+  div.appendChild(document.createTextNode(text));
+  $('transcript').insertBefore(div, interimEl);
+  $('transcript').scrollTop = $('transcript').scrollHeight;
+
+  confirmedTail = (confirmedTail + ' ' + text).trim().slice(-400);
+
+  // Notionへキュー投入（5秒毎にまとめて送信）
+  if ($('chk-notion').checked) {
+    notionQueue.push($('chk-ts').checked
+      ? '[' + new Date().toLocaleTimeString('ja-JP', { hour12: false }) + '] ' + text
+      : text);
+    scheduleNotionFlush();
+  }
+}
+
+// ==========================================================================
+// ④ Notion 記録
+// ==========================================================================
+function notionBase() {
+  const { proxy } = getSettings();
+  return proxy || 'https://api.notion.com';
+}
+
+async function notionFetch(path, options) {
+  const { token } = getSettings();
+  return fetch(notionBase() + path, {
+    ...options,
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Notion-Version': '2022-06-28',
+      'Content-Type': 'application/json',
+      ...(options && options.headers),
+    },
+  });
+}
+
+function scheduleNotionFlush() {
+  if (notionTimer) return;
+  notionTimer = setTimeout(() => { notionTimer = null; flushNotion(); }, 5000);
+}
+
+async function flushNotion() {
+  if (notionBusy || notionQueue.length === 0) return;
+  const { token, pageId } = getSettings();
+  if (!token || !pageId) {
+    log('Notion未設定のため記録をスキップ（④で設定してください）', 'err');
+    notionQueue = [];
+    return;
+  }
+  const batch = notionQueue.splice(0, notionQueue.length);
+  const children = [];
+  if (!sessionHeaderSent) {
+    sessionHeaderSent = true;
+    children.push({
+      object: 'block', type: 'heading_3',
+      heading_3: { rich_text: [{ type: 'text', text: {
+        content: '🎙 文字起こし ' + new Date().toLocaleString('ja-JP'),
+      } }] },
+    });
+  }
+  for (const t of batch) {
+    children.push({
+      object: 'block', type: 'paragraph',
+      paragraph: { rich_text: [{ type: 'text', text: { content: t.slice(0, 2000) } }] },
+    });
+  }
+  notionBusy = true;
+  try {
+    const res = await notionFetch('/v1/blocks/' + pageId + '/children', {
+      method: 'PATCH',
+      body: JSON.stringify({ children }),
+    });
+    if (res.ok) {
+      setNotionPill('記録OK', true);
+      log('Notionへ ' + batch.length + ' 件記録', 'ok');
+    } else {
+      const body = await res.text();
+      setNotionPill('ERROR', false);
+      log('Notion記録失敗 HTTP ' + res.status + ': ' + body.slice(0, 200), 'err');
+      notionQueue.unshift(...batch); // 再送用に戻す
+      scheduleNotionFlush();
+    }
+  } catch (e) {
+    setNotionPill('ERROR', false);
+    log('Notion送信エラー: ' + e.message + '（PROXY URL設定を確認）', 'err');
+    notionQueue.unshift(...batch);
+  } finally {
+    notionBusy = false;
+    if (notionQueue.length) scheduleNotionFlush();
+  }
+}
+
+function setNotionPill(text, ok) {
+  const pill = $('pill-notion');
+  pill.textContent = 'NOTION: ' + text;
+  pill.className = 'status-pill ' + (ok ? 'ok' : 'err');
+}
+
+async function testNotion() {
+  const { token, pageId } = getSettings();
+  if (!token || !pageId) { log('TOKENとPAGE IDを入力してください', 'err'); return; }
+  setNotionPill('テスト中…', true);
+  try {
+    const res = await notionFetch('/v1/pages/' + pageId, { method: 'GET' });
+    if (res.ok) {
+      setNotionPill('接続OK', true);
+      log('Notion接続テスト成功', 'ok');
+    } else {
+      const body = await res.text();
+      setNotionPill('HTTP ' + res.status, false);
+      log('Notionテスト失敗 HTTP ' + res.status + ': ' + body.slice(0, 200), 'err');
+    }
+  } catch (e) {
+    setNotionPill('到達不可', false);
+    log('Notionへ到達できません: ' + e.message + '（PROXY URL設定を確認）', 'err');
+  }
+}
+
+// ==========================================================================
+// UI 配線
+// ==========================================================================
+$('btn-conn-left').addEventListener('click', () => connectSide('L'));
+$('btn-conn-right').addEventListener('click', () => connectSide('R'));
+$('btn-mic').addEventListener('click', toggleMic);
+$('btn-save-settings').addEventListener('click', saveSettings);
+$('btn-test-notion').addEventListener('click', testNotion);
+$('btn-send-manual').addEventListener('click', () => {
+  const t = $('manual-text').value.trim();
+  if (t) sendTextToGlasses(t);
+});
+$('btn-clear-glass').addEventListener('click', () => {
+  confirmedTail = ''; liveTail = '';
+  sendTextToGlasses(' ');
+  $('glass-preview').textContent = '（消去済み）';
+});
+$('sel-lang').addEventListener('change', () => {
+  if (micOn) { // 言語変更時は再起動
+    toggleMic(); toggleMic();
+  }
+});
+
+loadSettings();
+log('準備完了。①でグラスを接続 → ②で文字起こしを開始してください。');
+
+// Service Worker（既存のPWAキャッシュに参加）
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
