@@ -55,6 +55,9 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
+  // OpenAIP APIはキャッシュしない（空域データは常に最新を取得）
+  if (url.hostname.endsWith('openaip.net')) return;
+
   // 地図タイル: キャッシュ優先＋裏でネットワーク更新（stale-while-revalidate）
   if (url.hostname === 'cyberjapandata.gsi.go.jp') {
     e.respondWith((async () => {
