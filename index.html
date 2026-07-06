@@ -130,7 +130,7 @@ body{
   z-index:100;display:none;align-items:center;justify-content:center;padding:0 18px;
 }
 #modal-overlay.active{display:flex}
-#modal-box{
+#modal-box,.modal-box{
   background:#0c1828;border:1px solid var(--accent);border-radius:4px;padding:22px;
   width:100%;max-width:340px;box-shadow:0 0 40px rgba(0,212,255,0.18);
 }
@@ -144,6 +144,19 @@ body{
 .modal-btns{display:flex;gap:8px;margin-top:14px}
 #modal-add{flex:1;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.4);border-radius:2px;color:var(--accent);font-family:var(--mono);font-size:11px;padding:9px;cursor:pointer}
 #modal-cancel{background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.35);border-radius:2px;color:var(--red);font-family:var(--mono);font-size:11px;padding:9px 14px;cursor:pointer}
+
+/* AIRSPACE MODAL */
+#as-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.82);backdrop-filter:blur(6px);
+  z-index:100;display:none;align-items:center;justify-content:center;padding:0 18px;
+}
+#as-overlay.active{display:flex}
+#as-status{font-family:var(--mono);font-size:10px;letter-spacing:1px;margin-bottom:14px;line-height:1.8}
+#as-note{font-family:var(--sans);font-size:10px;color:var(--muted);margin-top:14px;line-height:1.8}
+#as-note a{color:var(--accent)}
+#as-update{flex:1;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.4);border-radius:2px;color:var(--accent);font-family:var(--mono);font-size:11px;padding:9px;cursor:pointer}
+#as-update:disabled{opacity:0.5}
+#as-close{background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.35);border-radius:2px;color:var(--red);font-family:var(--mono);font-size:11px;padding:9px 14px;cursor:pointer}
 
 /* TOAST */
 #toast{
@@ -175,7 +188,12 @@ input[type=number]::-webkit-inner-spin-button{opacity:0.25}
 #map-block{display:none;height:calc(100vh - 120px);position:relative;}
 #map{width:100%;height:100%;}
 .leaflet-container{background:#0a1520;}
-#map-info{display:none}
+#map-info{
+  position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:401;
+  font-family:var(--mono);font-size:8px;letter-spacing:1px;
+  background:rgba(6,11,16,0.78);border:1px solid var(--border);border-radius:2px;
+  padding:3px 9px;white-space:nowrap;display:none;
+}
 .map-corner{
   position:absolute;z-index:1000;
   background:rgba(0,0,0,0.82);border:1px solid rgba(255,255,255,0.25);border-radius:3px;
@@ -292,6 +310,13 @@ const AIRSPACE_LAYERS = [
         <circle cx="12" cy="12" r="7"/>
       </svg>
     </button>
+    <button id="btn-airspace" class="map-ctrl-btn" title="空域データ設定" onclick="openAsModal()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+        <polyline points="2 17 12 22 22 17"/>
+        <polyline points="2 12 12 17 22 12"/>
+      </svg>
+    </button>
   </div>
 </div>
 <!-- HSI BLOCK -->
@@ -397,6 +422,27 @@ const AIRSPACE_LAYERS = [
     <div class="modal-btns">
       <button id="modal-add" onclick="addCustomWP()">ADD</button>
       <button id="modal-cancel" onclick="closeModal()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- AIRSPACE MODAL -->
+<div id="as-overlay" onclick="if(event.target===this)closeAsModal()">
+  <div class="modal-box">
+    <div class="modal-title">AIRSPACE DATA — OpenAIP</div>
+    <div id="as-status"></div>
+    <div class="form-group">
+      <label class="form-lbl">OpenAIP APIキー</label>
+      <input class="form-inp" id="as-key" placeholder="APIキーを貼り付け" autocomplete="off">
+    </div>
+    <div class="modal-btns">
+      <button id="as-update" onclick="syncAirspace()">最新データを取得</button>
+      <button id="as-close" onclick="closeAsModal()">閉じる</button>
+    </div>
+    <div id="as-note">
+      APIキーは <a href="https://www.openaip.net" target="_blank" rel="noopener">openaip.net</a> に無料登録後、アカウントメニューの「API Clients」で発行できます。<br>
+      取得した空域データは端末に保存され、オフラインでも表示されます。空域は随時変更されるため、定期的に更新してください。<br>
+      ※本表示は参考情報です。飛行にあたっては必ず公式のAIP・NOTAMを確認してください。
     </div>
   </div>
 </div>
@@ -1033,6 +1079,10 @@ let posMarker = null;
 let wpMarker = null;
 let routeLine = null;
 let mapTracking = false; // trueのとき現在地追従
+let airspaceStore = null; // OpenAIPから取得した空域 {fetchedAt, items:[...]}
+let airspaceCtl = null;   // 空域レイヤーコントロール
+let airspaceGroups = [];  // 表示中の空域レイヤー群
+let gsiLayerRef = null;
 
 function switchTab(tab){
   currentTab = tab;
@@ -1099,6 +1149,124 @@ function initMap(){
     minZoom: 5,
   }).addTo(map);
 
+  gsiLayerRef = gsiLayer;
+  buildAirspace();
+
+  // 現在地マーカー（青い点）
+  const posIcon = L.divIcon({
+    html: '<div style="width:14px;height:14px;border-radius:50%;background:#00d4ff;border:2px solid #fff;box-shadow:0 0 10px rgba(0,212,255,0.8);"></div>',
+    className: '',
+    iconSize: [14,14],
+    iconAnchor: [7,7],
+  });
+
+  // WPマーカー（オレンジ三角）
+  const wpIcon = L.divIcon({
+    html: '<div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:16px solid #ff6b35;filter:drop-shadow(0 0 4px rgba(255,107,53,0.8));"></div>',
+    className: '',
+    iconSize: [16,16],
+    iconAnchor: [8,16],
+  });
+
+  posMarker = L.marker([35.68,139.76], {icon:posIcon, zIndexOffset:1000});
+  wpMarker  = L.marker([35.68,139.76], {icon:wpIcon,  zIndexOffset:999});
+  routeLine = L.polyline([], {color:'#9b5de5', weight:3, opacity:0.9});
+
+  routeLine.addTo(map);
+}
+
+// ── 空域描画 ──────────────────────────────────────────────────────────────────
+function clearAirspace(){
+  airspaceGroups.forEach(g=>{ if(map.hasLayer(g)) map.removeLayer(g); });
+  airspaceGroups=[];
+  if(airspaceCtl){ map.removeControl(airspaceCtl); airspaceCtl=null; }
+}
+function addAirspaceControl(overlays){
+  airspaceCtl=L.control.layers(
+    { '国土地理院': gsiLayerRef },
+    overlays,
+    { position:'topright', collapsed:true }
+  ).addTo(map);
+}
+// OpenAIPデータがあればそれを、無ければ内蔵データ（参考）を描画
+function buildAirspace(){
+  if(!map) return;
+  clearAirspace();
+  if(airspaceStore && airspaceStore.items && airspaceStore.items.length){
+    buildOpenAipAirspace(airspaceStore);
+  }else{
+    buildEmbeddedAirspace();
+  }
+  updateMapInfo();
+}
+function updateMapInfo(){
+  const el=document.getElementById('map-info');
+  if(airspaceStore && airspaceStore.items && airspaceStore.items.length){
+    const d=new Date(airspaceStore.fetchedAt);
+    const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    el.textContent=`空域: OpenAIP ${airspaceStore.items.length}件 (${ds}取得)`;
+    el.style.color='var(--green)';
+  }else{
+    el.textContent='空域: 内蔵データ（参考・要更新）';
+    el.style.color='var(--orange)';
+  }
+  el.style.display='block';
+}
+
+// OpenAIP空域タイプ → 表示設定（未知タイプは「その他」として必ず描画する）
+const AS_TYPES={
+  4:{label:'管制圏 (CTR)',color:'#4444ff'},
+  13:{label:'ATZ',color:'#4444ff'},
+  23:{label:'情報圏 (TIZ)',color:'#99ff99'},
+  24:{label:'情報空域 (TIA)',color:'#99ff99'},
+  3:{label:'禁止空域 (P)',color:'#ff2222'},
+  1:{label:'制限空域 (R)',color:'#ff2222'},
+  2:{label:'危険空域 (D)',color:'#ff8800'},
+  7:{label:'進入管制区 (TMA)',color:'#00d4ff'},
+  26:{label:'管制区 (CTA)',color:'#00d4ff'},
+  5:{label:'TMZ',color:'#33ff66'},
+  6:{label:'RMZ',color:'#33ff66'},
+  8:{label:'訓練空域 (TRA)',color:'#33ff66'},
+  9:{label:'訓練空域 (TSA)',color:'#33ff66'},
+  25:{label:'軍訓練空域 (MTA)',color:'#33ff66'},
+  21:{label:'滑空空域',color:'#66ffcc'},
+  17:{label:'警報空域 (ALERT)',color:'#ff8800'},
+  18:{label:'注意空域 (WARNING)',color:'#ff8800'},
+};
+const AS_OTHER={label:'その他空域',color:'#8899aa'};
+const escHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function buildOpenAipAirspace(store){
+  const groups=new Map();
+  for(const a of store.items){
+    const t=AS_TYPES[a.type]||AS_OTHER;
+    if(!groups.has(t.label)) groups.set(t.label,{t,feats:[]});
+    groups.get(t.label).feats.push({
+      type:'Feature',
+      properties:{name:a.name,band:(a.lower||a.upper)?`${a.lower||'?'} - ${a.upper||'?'}`:''},
+      geometry:a.geometry,
+    });
+  }
+  const overlays={};
+  let first=true;
+  for(const {t,feats} of groups.values()){
+    const gl=L.geoJSON({type:'FeatureCollection',features:feats},{
+      style:{color:t.color,weight:2,opacity:0.95,fill:false},
+      attribution:first?'空域: <a href="https://www.openaip.net" target="_blank" rel="noopener">OpenAIP</a>':'',
+      onEachFeature:(f,lyr)=>{
+        const p=f.properties;
+        lyr.bindTooltip(`<b>${escHtml(p.name)}</b>${p.band?'<br>'+escHtml(p.band):''}`,{sticky:true,opacity:0.9});
+      }
+    }).addTo(map);
+    overlays[`${t.label} [${feats.length}]`]=gl;
+    airspaceGroups.push(gl);
+    first=false;
+  }
+  addAirspaceControl(overlays);
+}
+
+// 内蔵データ（従来の埋め込みGeoJSON・参考表示）
+function buildEmbeddedAirspace(){
   // 空域タイプ略称マップ
   const AIRSPACE_TYPE_CHAR = {
     infoZone:    {char:'I', color:'#99ff99'},
@@ -1167,40 +1335,118 @@ function initMap(){
         })
       }).addTo(map);
       overlayLayers[layer.label + ' 高度'] = ptLayer;
+      airspaceGroups.push(ptLayer);
     }
 
     overlayLayers[layer.label] = gl;
+    airspaceGroups.push(gl);
   });
-  // レイヤーコントロール
-  L.control.layers(
-    { '国土地理院': gsiLayer },
-    overlayLayers,
-    { position: 'topright', collapsed: true }
-  ).addTo(map);
-
-  // 現在地マーカー（青い点）
-  const posIcon = L.divIcon({
-    html: '<div style="width:14px;height:14px;border-radius:50%;background:#00d4ff;border:2px solid #fff;box-shadow:0 0 10px rgba(0,212,255,0.8);"></div>',
-    className: '',
-    iconSize: [14,14],
-    iconAnchor: [7,7],
-  });
-
-  // WPマーカー（オレンジ三角）
-  const wpIcon = L.divIcon({
-    html: '<div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:16px solid #ff6b35;filter:drop-shadow(0 0 4px rgba(255,107,53,0.8));"></div>',
-    className: '',
-    iconSize: [16,16],
-    iconAnchor: [8,16],
-  });
-
-  posMarker = L.marker([35.68,139.76], {icon:posIcon, zIndexOffset:1000});
-  wpMarker  = L.marker([35.68,139.76], {icon:wpIcon,  zIndexOffset:999});
-  routeLine = L.polyline([], {color:'#9b5de5', weight:3, opacity:0.9});
-
-  routeLine.addTo(map);
+  addAirspaceControl(overlayLayers);
 }
 
+
+// ── OpenAIP同期 ───────────────────────────────────────────────────────────────
+// IndexedDB（空域データは数MBになりlocalStorageに収まらないため）
+function idbOpen(){
+  return new Promise((ok,ng)=>{
+    const r=indexedDB.open('rppointer',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('kv');
+    r.onsuccess=()=>ok(r.result);
+    r.onerror=()=>ng(r.error);
+  });
+}
+async function idbGet(k){
+  const db=await idbOpen();
+  return new Promise((ok,ng)=>{
+    const q=db.transaction('kv').objectStore('kv').get(k);
+    q.onsuccess=()=>ok(q.result);
+    q.onerror=()=>ng(q.error);
+  });
+}
+async function idbSet(k,v){
+  const db=await idbOpen();
+  return new Promise((ok,ng)=>{
+    const q=db.transaction('kv','readwrite').objectStore('kv').put(v,k);
+    q.onsuccess=()=>ok();
+    q.onerror=()=>ng(q.error);
+  });
+}
+
+// OpenAIPの高度表現 → 表示文字列 (unit: 1=ft,2=m,6=FL / referenceDatum: 0=GND,1=MSL,2=STD)
+function fmtLimit(lim){
+  if(!lim) return '';
+  if(lim.unit===6) return 'FL'+lim.value;
+  if(lim.value===0 && lim.referenceDatum===0) return 'SFC';
+  const u={1:'ft',2:'m'}[lim.unit]||'';
+  const d={0:'GND',1:'MSL',2:'STD'}[lim.referenceDatum]||'';
+  return `${lim.value}${u}${d?' '+d:''}`;
+}
+
+async function fetchOpenAIP(key){
+  const items=[];
+  let page=1,totalPages=1;
+  do{
+    const res=await fetch('https://api.core.openaip.net/api/airspaces?country=JP&limit=1000&page='+page+'&apiKey='+encodeURIComponent(key));
+    if(res.status===401||res.status===403) throw new Error('APIキーが無効です');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const j=await res.json();
+    totalPages=j.totalPages||1;
+    for(const a of (j.items||[])){
+      if(!a.geometry) continue;
+      // FIR/UIR/ADIZ/ACCセクターは日本全体を覆う巨大空域のため描画対象外
+      if([10,11,12,27].includes(a.type)) continue;
+      items.push({
+        name:a.name||'',
+        type:a.type,
+        lower:fmtLimit(a.lowerLimit),
+        upper:fmtLimit(a.upperLimit),
+        geometry:a.geometry,
+      });
+    }
+    page++;
+  }while(page<=totalPages && page<=30);
+  return items;
+}
+
+async function syncAirspace(){
+  const key=document.getElementById('as-key').value.trim();
+  if(!key){ showToast('OpenAIPのAPIキーを入力してください',true); return; }
+  try{localStorage.setItem('openaip-key',key);}catch(e){}
+  const btn=document.getElementById('as-update');
+  btn.disabled=true; btn.textContent='取得中...';
+  try{
+    const items=await fetchOpenAIP(key);
+    if(items.length===0) throw new Error('データが0件でした');
+    airspaceStore={fetchedAt:Date.now(),items};
+    await idbSet('openaip-airspaces',airspaceStore);
+    if(map) buildAirspace();
+    updateAsStatus();
+    showToast(`空域データ ${items.length.toLocaleString()}件を取得しました`);
+  }catch(err){
+    showToast('空域取得エラー: '+err.message,true);
+    console.error(err);
+  }finally{
+    btn.disabled=false; btn.textContent='最新データを取得';
+  }
+}
+
+function openAsModal(){
+  document.getElementById('as-key').value=localStorage.getItem('openaip-key')||'';
+  updateAsStatus();
+  document.getElementById('as-overlay').classList.add('active');
+}
+function closeAsModal(){document.getElementById('as-overlay').classList.remove('active');}
+function updateAsStatus(){
+  const el=document.getElementById('as-status');
+  if(airspaceStore && airspaceStore.items && airspaceStore.items.length){
+    const d=new Date(airspaceStore.fetchedAt);
+    el.textContent=`OpenAIPデータ使用中: ${airspaceStore.items.length.toLocaleString()}件（${d.toLocaleDateString('ja-JP')}取得）`;
+    el.style.color='var(--green)';
+  }else{
+    el.textContent='内蔵データ（参考・鮮度不明）を表示中。APIキーを設定して最新の空域データを取得してください。';
+    el.style.color='var(--orange)';
+  }
+}
 
 function calcEta(nm, g){
   if(!nm||!g||g<=0||nm<=0) return '--:--';
@@ -1310,7 +1556,14 @@ drawHSI(null,0,false);
 loadDB();
 startGPS();
 switchTab('hsi'); // 初期タブ
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeAsModal();}});
+// 保存済みのOpenAIP空域データを読み込み（マップ初期化済みなら再描画）
+idbGet('openaip-airspaces').then(s=>{
+  if(s && s.items && s.items.length){
+    airspaceStore=s;
+    if(map) buildAirspace();
+  }
+}).catch(e=>console.error(e));
 </script>
 </body>
 </html>
