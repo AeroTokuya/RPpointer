@@ -442,6 +442,8 @@ let filtered = [];
 let searchQ = '';
 let track = null;   // 進行方向（磁方位トラック、null=不明）
 let lastFix = null; // トラック算出用の前回位置
+let magHdg = null;  // 磁気センサーによる機首方位（GPSトラックが取れない時の補助、null=利用不可）
+let magSetup = false;
 const MAGVAR = 7;   // 磁気偏差（西偏7° → 磁方位=真方位+7）※calcBrgにも同値が組み込み済み
 let gpsKt = null;   // GPS対地速度（kt、null=不明）
 let gsAuto = false; // trueのときGPS速度でETE/ETAを自動計算（30kt超でON、25kt未満でOFF）
@@ -495,6 +497,8 @@ function startGPS(){
       if(gpsKt==null){ gsAuto=false; }
       else if(gpsKt>30){ gsAuto=true; }
       else if(gpsKt<25){ gsAuto=false; }
+      // ほぼ静止中はGPSトラックを捨てる（磁気コンパスがあればそちらで表示）
+      if(gpsKt!=null && gpsKt<2){ track=null; }
       updateGsDisplay();
       document.getElementById('gps-coords').style.color='var(--green)';
       document.getElementById('gps-coords').textContent=fmtCoord(pos.lat,'NS')+' '+fmtCoord(pos.lon,'EW');
@@ -514,13 +518,53 @@ function startGPS(){
   );
 }
 
+// ── 磁気コンパス（GPSトラックが取れない時の補助） ─────────────────────────────
+// スマホの電子コンパスで機首方位（＝スマホの向き）を取得する。OSが自動で
+// キャリブレーションするため手動調整は不要。静止中・低速時のみ表示に使う。
+function onOrientation(e){
+  let h=null;
+  if(e.webkitCompassHeading!=null && !isNaN(e.webkitCompassHeading)){
+    h=e.webkitCompassHeading; // iOS: 磁北基準・傾き補正済み
+  }else if(e.absolute===true && e.alpha!=null && !isNaN(e.alpha)){
+    h=(360-e.alpha)%360;      // Android: 絶対方位（磁北基準）
+  }
+  if(h==null) return;
+  // 画面回転の補正（横向き固定時など）
+  const ang=(screen.orientation && screen.orientation.angle)||window.orientation||0;
+  h=(h+ang+360)%360;
+  // 円周上の平滑化でジッタを抑える
+  if(magHdg==null){ magHdg=h; }
+  else{
+    const d=((h-magHdg+540)%360)-180;
+    magHdg=(magHdg+d*0.25+360)%360;
+  }
+  if(track==null && currentTab==='hsi') updateHSI();
+}
+function startCompass(){
+  if(magSetup) return; magSetup=true;
+  if(typeof DeviceOrientationEvent==='undefined') return;
+  if(typeof DeviceOrientationEvent.requestPermission==='function'){
+    // iOS 13+: ユーザー操作の中で許可を要求する必要がある
+    DeviceOrientationEvent.requestPermission().then(st=>{
+      if(st==='granted') window.addEventListener('deviceorientation',onOrientation);
+    }).catch(()=>{});
+  }else if('ondeviceorientationabsolute' in window){
+    window.addEventListener('deviceorientationabsolute',onOrientation);
+  }else{
+    window.addEventListener('deviceorientation',onOrientation);
+  }
+}
+// iOSの許可ダイアログはタップ起点でしか出せないため、最初のタップで開始
+document.addEventListener('click',()=>startCompass(),{once:true});
+
 // ── HSI Canvas ───────────────────────────────────────────────────────────────
 const canvas = document.getElementById('hsi-canvas');
 const ctx = canvas.getContext('2d');
 
-function drawHSI(trk, brg, hasWp){
-  // trk: 進行方向（磁方位トラック、null=不明→ノースアップ表示）
+function drawHSI(trk, brg, hasWp, isMag){
+  // trk: 進行方向（磁方位、null=不明→ノースアップ表示）
   // brg: 目的地への磁方位（hasWpのとき矢印で表示）
+  // isMag: trueのときtrkは磁気センサーの機首方位（スマホの向き）
   const rot = trk==null ? 0 : trk;
   const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,r=W/2-6;
   ctx.clearRect(0,0,W,H);
@@ -594,10 +638,14 @@ function drawHSI(trk, brg, hasWp){
   ctx.beginPath();ctx.moveTo(-8,16);ctx.lineTo(8,16);ctx.stroke();
   ctx.restore();
 
-  // TRK readout（現在の進行方位）
+  // TRK readout（現在の進行方位。磁気センサー使用時は青+MAG表示）
   ctx.font="bold 26px 'Share Tech Mono',monospace";
-  ctx.fillStyle='#c74e00';ctx.textAlign='center';
+  ctx.fillStyle=isMag?'#005bbb':'#c74e00';ctx.textAlign='center';
   ctx.fillText(trk!=null?String(Math.round(rot)%360).padStart(3,'0')+'°':'---°',cx,cy+r*0.40);
+  if(isMag){
+    ctx.font="bold 12px 'Share Tech Mono',monospace";
+    ctx.fillText('MAG',cx,cy+r*0.40+16);
+  }
 
   // inner ring
   ctx.beginPath();ctx.arc(cx,cy,r-2,0,Math.PI*2);
@@ -611,7 +659,9 @@ function updateHSI(){
   const g    = effGs();
   const ete  = fmtEte(dist, g);
 
-  drawHSI(track, brg, active);
+  // GPSトラック優先、取れない時は磁気センサーの機首方位で補う
+  const isMag = (track==null && magHdg!=null);
+  drawHSI(track!=null ? track : magHdg, brg, active, isMag);
 
   document.getElementById('d-brg').textContent  = active ? String(Math.round(brg)).padStart(3,'0')+'°' : '---°';
   document.getElementById('d-dist').textContent = active ? dist.toFixed(1) : '---';
