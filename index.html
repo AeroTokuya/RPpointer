@@ -312,8 +312,15 @@ const AIRSPACE_LAYERS = [
     <button id="dest-clr" style="display:none" onclick="clearSel()">CLR</button>
   </div>
 
-  <!-- HSI Canvas -->
-  <canvas id="hsi-canvas" width="260" height="260"></canvas>
+  <!-- HSI Canvas + GPS高度表示 -->
+  <div style="position:relative;width:100%;display:flex;justify-content:center">
+    <canvas id="hsi-canvas" width="260" height="260"></canvas>
+    <div id="hsi-alt" style="position:absolute;top:0;right:2px;text-align:right;font-family:var(--mono)">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:1px">GPS ALT</div>
+      <div id="hsi-alt-val" style="font-size:22px;font-weight:bold;color:var(--accent);line-height:1.1">----</div>
+      <div style="font-size:11px;color:var(--muted)">ft</div>
+    </div>
+  </div>
 
   <!-- GS + Digital 4-box row -->
   <div style="width:100%;display:flex;align-items:stretch;gap:1px;background:var(--border);border-radius:2px;overflow:hidden">
@@ -446,6 +453,7 @@ let magHdg = null;  // 磁気センサーによる機首方位（GPSトラック
 let magSetup = false;
 const MAGVAR = 7;   // 磁気偏差（西偏7° → 磁方位=真方位+7）※calcBrgにも同値が組み込み済み
 let gpsKt = null;   // GPS対地速度（kt、null=不明）
+let gpsAltFt = null; // GPS高度（ft、null=不明）
 let gsAuto = false; // trueのときGPS速度でETE/ETAを自動計算（30kt超でON、25kt未満でOFF）
 
 // ── Math ─────────────────────────────────────────────────────────────────────
@@ -499,6 +507,11 @@ function startGPS(){
       else if(gpsKt<25){ gsAuto=false; }
       // ほぼ静止中はGPSトラックを捨てる（磁気コンパスがあればそちらで表示）
       if(gpsKt!=null && gpsKt<2){ track=null; }
+      // GPS高度（m → ft、10ft単位に丸めて表示のバタつきを抑える）
+      const alt=p.coords.altitude;
+      gpsAltFt=(alt!=null && !isNaN(alt)) ? alt*3.28084 : null;
+      document.getElementById('hsi-alt-val').textContent =
+        gpsAltFt!=null ? String(Math.round(gpsAltFt/10)*10) : '----';
       updateGsDisplay();
       document.getElementById('gps-coords').style.color='var(--green)';
       document.getElementById('gps-coords').textContent=fmtCoord(pos.lat,'NS')+' '+fmtCoord(pos.lon,'EW');
