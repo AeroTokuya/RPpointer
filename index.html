@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<!-- 読み込み先を既知のホストに制限（XSS発生時の被害を限定） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://cyberjapandata.gsi.go.jp; connect-src 'self' https://api.core.openaip.net https://cyberjapandata.gsi.go.jp https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#ffffff">
 <title>RPpointer — Point Navigation</title>
@@ -831,6 +833,7 @@ function parseKML(text){
 
 async function handleFile(e){
   const file=e.target.files[0]; if(!file) return;
+  if(file.size>30*1024*1024){ showToast('ファイルが大きすぎます（上限30MB）',true); e.target.value=''; return; }
   const btn=document.getElementById('btn-import');
   btn.textContent='読み込み中...'; btn.disabled=true;
   await new Promise(r=>setTimeout(r,50));
@@ -959,11 +962,13 @@ function renderList(){
 function openModal(){document.getElementById('modal-overlay').classList.add('active');}
 function closeModal(){document.getElementById('modal-overlay').classList.remove('active');}
 function addCustomWP(){
-  const id=document.getElementById('f-id').value.trim().toUpperCase();
+  // IDはインポート時と同じ規則に正規化（英数字のみ・8文字まで）
+  const id=document.getElementById('f-id').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
   const name=document.getElementById('f-name').value.trim();
   const lat=parseFloat(document.getElementById('f-lat').value);
   const lon=parseFloat(document.getElementById('f-lon').value);
-  if(!id||!name||isNaN(lat)||isNaN(lon)){showToast('全項目入力してください',true);return;}
+  if(!id||!name||isNaN(lat)||isNaN(lon)){showToast('全項目入力してください（IDENTは英数字）',true);return;}
+  if(lat<-90||lat>90||lon<-180||lon>180){showToast('緯度経度の範囲が不正です',true);return;}
   if(wpDB.find(w=>w.id===id)){showToast(id+' は既登録',true);return;}
   wpDB.push({id,name,lat,lon,desc:''});
   saveDB();
@@ -1339,7 +1344,7 @@ function buildEmbeddedAirspace(){
       },
       onEachFeature: (feature, lyr) => {
         if (feature.properties && feature.properties.name) {
-          lyr.bindTooltip(feature.properties.name, {sticky: true, opacity: 0.85});
+          lyr.bindTooltip(escHtml(feature.properties.name), {sticky: true, opacity: 0.85});
         }
       }
     }).addTo(map);
@@ -1501,7 +1506,7 @@ function updateMap(){
   // WPマーカー
   if(hasSel){
     wpMarker.setLatLng([selWp.lat, selWp.lon]);
-    wpMarker.bindTooltip(selWp.id, {permanent:true, direction:'top', offset:[0,-10], className:'wp-label', opacity:0.9});
+    wpMarker.bindTooltip(escHtml(selWp.id), {permanent:true, direction:'top', offset:[0,-10], className:'wp-label', opacity:0.9});
     if(!map.hasLayer(wpMarker)) wpMarker.addTo(map);
   } else {
     if(map.hasLayer(wpMarker)) map.removeLayer(wpMarker);
