@@ -294,12 +294,8 @@ const AIRSPACE_LAYERS = [
         <circle cx="12" cy="12" r="7"/>
       </svg>
     </button>
-    <button id="btn-wps" class="map-ctrl-btn" title="登録WPの表示/非表示" onclick="toggleWps()">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-        <circle cx="12" cy="10" r="3"/>
-      </svg>
-    </button>
+    <button id="btn-wps" class="map-ctrl-btn" title="登録WPの表示/非表示" onclick="toggleWps()"
+      style="font-family:var(--mono);font-size:16px;font-weight:bold;letter-spacing:0">WP</button>
     <button id="btn-airspace" class="map-ctrl-btn" title="空域データ設定" onclick="openAsModal()">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="12 2 2 7 12 12 22 7 12 2"/>
@@ -1234,15 +1230,22 @@ function initMap(){
 
   routeLine.addTo(map);
 
-  // 登録WPレイヤー（Canvas描画・画面内のみ）
-  wpCanvas = L.canvas({padding:0.5});
+  // 登録WPレイヤー（Canvas描画・画面内のみ。tolerance=指でタップしやすい当たり判定）
+  wpCanvas = L.canvas({padding:0.5, tolerance:10});
   map.on('moveend', renderWpLayer);
+  // 地図の空きタップでWPツールチップを閉じる（マーカータップ直後は除く）
+  map.on('click', ()=>{
+    if(Date.now()-wpTipOpenedAt<350) return;
+    if(wpTipMarker){ wpTipMarker.closeTooltip(); wpTipMarker=null; }
+  });
   document.getElementById('btn-wps').classList.toggle('active', showWps);
   renderWpLayer();
 }
 
 // ── 登録WPの地図表示 ──────────────────────────────────────────────────────────
 const WP_RENDER_CAP = 500; // 一度に描画する上限（画面内のWPのみ対象）
+let wpTipMarker = null;    // ツールチップを開いているWPマーカー
+let wpTipOpenedAt = 0;
 
 function toggleWps(){
   showWps = !showWps;
@@ -1255,6 +1258,7 @@ function toggleWps(){
 
 function renderWpLayer(){
   if(!map) return;
+  wpTipMarker=null;
   if(wpLayerGroup){ map.removeLayer(wpLayerGroup); wpLayerGroup=null; }
   if(!showWps || wpDB.length===0) return;
   const b=map.getBounds().pad(0.2);
@@ -1265,9 +1269,14 @@ function renderWpLayer(){
       renderer:wpCanvas, radius:6,
       color:'#7b2fbf', weight:2, fillColor:'#ffffff', fillOpacity:0.9,
     });
+    // タップで名称表示のみ（目的地の変更はしない）。再タップ/空きタップで閉じる
     m.bindTooltip(`<b>${escHtml(wp.id)}</b>${wp.name?'<br>'+escHtml(wp.name):''}`,
       {direction:'top', offset:[0,-6], opacity:0.95});
-    m.on('click', ()=>selectWP(wp));
+    m.on('click', ()=>{
+      if(wpTipMarker && wpTipMarker!==m) wpTipMarker.closeTooltip();
+      m.openTooltip();
+      wpTipMarker=m; wpTipOpenedAt=Date.now();
+    });
     markers.push(m);
     if(markers.length>=WP_RENDER_CAP) break;
   }
