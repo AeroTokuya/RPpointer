@@ -453,6 +453,8 @@ let track = null;   // 進行方向（磁方位トラック、null=不明）
 let lastFix = null; // トラック算出用の前回位置
 let magHdg = null;  // 磁気センサーによる機首方位（GPSトラックが取れない時の補助、null=利用不可）
 let magSetup = false;
+let magLastDraw = 0;    // コンパス再描画の間引き用（前回描画時刻）
+let magDrawnHdg = null; // 前回描画した方位
 const MAGVAR = 7;   // 磁気偏差（西偏7° → 磁方位=真方位+7）※calcBrgにも同値が組み込み済み
 let gpsKt = null;   // GPS対地速度（kt、null=不明）
 let gpsAltFt = null; // GPS高度（ft、null=不明）
@@ -553,7 +555,16 @@ function onOrientation(e){
     const d=((h-magHdg+540)%360)-180;
     magHdg=(magHdg+d*0.25+360)%360;
   }
-  if(track==null && currentTab==='hsi') updateHSI();
+  // センサーは毎秒60回前後発火するため、描画は約8Hzに間引き、
+  // 0.5°未満の変化はスキップしてCPU負荷を抑える
+  if(track==null && currentTab==='hsi'){
+    const now=performance.now();
+    const moved=magDrawnHdg==null ? 999 : Math.abs(((magHdg-magDrawnHdg+540)%360)-180);
+    if(now-magLastDraw>125 && moved>=0.5){
+      magLastDraw=now; magDrawnHdg=magHdg;
+      updateHSI();
+    }
+  }
 }
 function startCompass(){
   if(magSetup) return; magSetup=true;
