@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <!-- 読み込み先を既知のホストに制限（XSS発生時の被害を限定） -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://cyberjapandata.gsi.go.jp; connect-src 'self' https://api.core.openaip.net https://cyberjapandata.gsi.go.jp https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://cyberjapandata.gsi.go.jp; connect-src 'self' https://api.core.openaip.net https://router.project-osrm.org https://cyberjapandata.gsi.go.jp https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#ffffff">
 <title>RPpointer — Point Navigation</title>
@@ -434,8 +434,8 @@ const AIRSPACE_LAYERS = [
   </div>
   <div id="hosp-list"></div>
   <div id="hosp-note" style="display:none;padding:10px 12px;font-size:12px;color:var(--muted);line-height:1.8;border-top:1px solid var(--border)">
-    ※距離は直線距離です(道路距離はより長くなります)。時間は推定値です(直線距離×1.4を平均40km/hで走行として計算。渋滞・高速道路は未考慮)。<br>
-    「経路」をタップするとGoogleマップの車経路案内が開き、正確な道路距離・所要時間を確認できます(要通信)。
+    ※道路距離・所要時間はOSRM(OpenStreetMap)の経路計算によるものです(渋滞は未考慮)。<br>
+    圏外など取得できない間は直線距離のみ表示します。「経路」をタップするとGoogleマップの車経路案内が開きます。
   </div>
 </div>
 
@@ -1176,18 +1176,68 @@ function clearHospDB(){
   hospDB=[]; saveHospDB(); updateHospInfo(); renderHospList();
   showToast('追加分を削除しました（内蔵データは保持）');
 }
-// 車での概算所要時間（直線距離×道路係数1.4、平均40km/h）
-function fmtDrive(km){
-  const min=Math.round(km*1.4/40*60);
+// ── OSRM 道路距離・所要時間（OpenStreetMapの経路計算・無料/キー不要） ─────────
+// 1リクエストで現在地→上位15病院の道路距離と所要時間をまとめて取得する。
+// 取得できない間（圏外・サーバー不調）は直線距離のみ表示し、推定時間は出さない。
+let osrmCache = { key:null, data:null, failedAt:0 };
+let osrmPending = false;
+
+function osrmGridKey(rows){
+  if(!pos) return null;
+  // 現在地约1km格子 + 対象病院セットでキャッシュ（GPS更新ごとの再取得を防ぐ）
+  return pos.lat.toFixed(2)+','+pos.lon.toFixed(2)+'|'+rows.map(r=>r.name).join(';');
+}
+function fmtRoadMin(sec){
+  const min=Math.max(1,Math.round(sec/60));
   if(min<60) return `${min}分`;
   return `${Math.floor(min/60)}時間${String(min%60).padStart(2,'0')}分`;
 }
+async function fetchRoadTimes(rows, key){
+  osrmPending=true;
+  try{
+    const coords=[[pos.lon,pos.lat]].concat(rows.map(r=>[r.lon,r.lat]))
+      .map(c=>c[0].toFixed(5)+','+c[1].toFixed(5)).join(';');
+    const res=await fetch('https://router.project-osrm.org/table/v1/driving/'+coords+
+      '?sources=0&annotations=duration,distance');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const j=await res.json();
+    if(j.code!=='Ok'||!j.durations||!j.durations[0]) throw new Error('OSRM '+j.code);
+    const data={};
+    rows.forEach((r,i)=>{
+      const dur=j.durations[0][i+1];
+      const dist=j.distances?j.distances[0][i+1]:null;
+      if(dur!=null) data[r.name]={dur,dist};
+    });
+    osrmCache={key,data,failedAt:0};
+    if(currentTab==='hosp') renderHospList();
+  }catch(err){
+    osrmCache={key,data:null,failedAt:Date.now()};
+    console.warn('OSRM取得失敗:',err.message);
+  }finally{
+    osrmPending=false;
+  }
+}
+
 function renderHospList(){
   const list=document.getElementById('hosp-list');
   list.innerHTML='';
   let rows=allHosp().map(h=>({...h, km: pos ? calcNM(pos.lat,pos.lon,h.lat,h.lon)*1.852 : null}));
   if(pos) rows.sort((a,b)=>a.km-b.km);
   rows=rows.slice(0,15); // 近い順に15件
+
+  // 道路距離・時間（取得済みなら使用し、道路時間順に並べ替え）
+  const key=osrmGridKey(rows);
+  const road=(key && osrmCache.key===key) ? osrmCache.data : null;
+  if(road){
+    rows.sort((a,b)=>{
+      const da=road[a.name]?road[a.name].dur:Infinity;
+      const db=road[b.name]?road[b.name].dur:Infinity;
+      return da-db;
+    });
+  }else if(key && !osrmPending && Date.now()-osrmCache.failedAt>60000 && navigator.onLine!==false){
+    fetchRoadTimes(rows, key); // 非同期取得。完了時に再描画
+  }
+
   for(const h of rows){
     const row=document.createElement('div'); row.className='hosp-row';
     const badge=document.createElement('span');
@@ -1196,12 +1246,18 @@ function renderHospList(){
     const main=document.createElement('div'); main.className='hosp-main';
     const nm=document.createElement('div'); nm.className='hosp-name'; nm.textContent=h.name;
     const met=document.createElement('div'); met.className='hosp-met';
-    if(h.km!=null){
-      const b1=document.createElement('b'); b1.textContent='直線'+h.km.toFixed(1)+'km';
-      const b2=document.createElement('b'); b2.textContent='車 推定'+fmtDrive(h.km);
+    const r=road?road[h.name]:null;
+    if(r){
+      const b1=document.createElement('b');
+      b1.textContent=(r.dist!=null)?('道路'+(r.dist/1000).toFixed(1)+'km'):('直線'+h.km.toFixed(1)+'km');
+      const b2=document.createElement('b'); b2.textContent='車'+fmtRoadMin(r.dur);
       met.appendChild(b1);
       met.appendChild(document.createTextNode(' ／ '));
       met.appendChild(b2);
+    }else if(h.km!=null){
+      const b1=document.createElement('b'); b1.textContent='直線'+h.km.toFixed(1)+'km';
+      met.appendChild(b1);
+      if(osrmPending) met.appendChild(document.createTextNode(' ／ 時間計算中…'));
     }else{
       met.textContent='GPS取得待ち…';
     }
