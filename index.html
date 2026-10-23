@@ -1201,7 +1201,10 @@ function renderHospList(){
     const btn=document.createElement('button');
     btn.className='hosp-route'; btn.textContent='経路';
     btn.addEventListener('click',()=>{
-      window.open('https://www.google.com/maps/dir/?api=1&destination='+h.lat+','+h.lon+'&travelmode=driving','_blank','noopener');
+      // 病院名で検索させる（座標に誤差があってもGoogleが公式位置へ案内する）。
+      // 名前が短く曖昧な場合のみ座標を使用
+      const dest=(h.name && h.name.length>=5) ? encodeURIComponent(h.name) : (h.lat+','+h.lon);
+      window.open('https://www.google.com/maps/dir/?api=1&destination='+dest+'&travelmode=driving','_blank','noopener');
     });
     row.appendChild(badge); row.appendChild(main); row.appendChild(btn);
     list.appendChild(row);
