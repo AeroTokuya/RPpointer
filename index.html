@@ -235,6 +235,18 @@ input[type=number]::-webkit-inner-spin-button{opacity:0.25}
 }
 #hsi-wp-list{max-height:35vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
 #hsi-wp-overflow{padding:12px;font-family:var(--mono);font-size:13px;color:var(--muted);text-align:center;letter-spacing:1px;display:none}
+
+/* HOSP (救急病院) */
+.hosp-row{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid #dde4ea}
+.hosp-badge{font-family:var(--mono);font-size:14px;font-weight:bold;color:#fff;border-radius:4px;padding:7px 8px;flex-shrink:0;min-width:44px;text-align:center}
+.hosp-badge.c3{background:#c81e1e}
+.hosp-badge.c2{background:#c74e00}
+.hosp-badge.c0{background:#78909c}
+.hosp-main{flex:1;min-width:0}
+.hosp-name{font-size:16px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hosp-met{font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:3px}
+.hosp-met b{font-size:16px;color:var(--text)}
+.hosp-route{background:var(--accent);border:none;border-radius:5px;color:#fff;font-family:var(--mono);font-size:14px;font-weight:bold;padding:12px 13px;cursor:pointer;flex-shrink:0}
 </style>
 <!-- オフラインでも動くようライブラリはローカル同梱（vendor/） -->
 <script src="./vendor/jszip.min.js"></script>
@@ -257,6 +269,7 @@ const AIRSPACE_LAYERS = [
   <button class="tab-btn active" id="tab-hsi" onclick="switchTab('hsi')">HSI</button>
   <button class="tab-btn" id="tab-map" onclick="switchTab('map')">MAP</button>
   <button class="tab-btn" id="tab-list" onclick="switchTab('list')">WP LIST</button>
+  <button class="tab-btn" id="tab-hosp" onclick="switchTab('hosp')">HOSP</button>
 </div>
 <!-- GPS BAR -->
 <div id="gps-bar">
@@ -403,6 +416,30 @@ const AIRSPACE_LAYERS = [
   <div id="wp-overflow">…絞り込んでください（表示上限500件）</div>
 </div>
 
+<!-- HOSP (救急病院) -->
+<div id="hosp-section" style="display:none">
+  <div style="background:var(--surf);border-bottom:1px solid var(--border);padding:12px">
+    <div style="display:flex;gap:8px;align-items:stretch">
+      <button class="btn" onclick="document.getElementById('hosp-file-input').click()"
+        style="flex:1;background:var(--accent);border:none;color:#fff;font-weight:bold;padding:13px">🏥 病院リストをインポート</button>
+      <button class="btn" id="btn-hosp-clr" onclick="clearHospDB()"
+        style="background:var(--red);border:none;color:#fff;font-weight:bold;padding:13px 14px;display:none">🗑 全削除</button>
+      <input id="hosp-file-input" type="file" accept=".csv,.gpx,.kml,.kmz" onchange="handleHospFile(event)" style="display:none">
+    </div>
+    <div id="hosp-info" style="margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--muted);display:none"></div>
+    <div id="hosp-hint" style="margin-top:8px;font-size:12px;color:var(--muted);line-height:1.8">
+      救急病院リスト(CSV / KML / KMZ / GPX)をインポートしてください。<br>
+      CSVの列: <b>名称, 緯度, 経度, 区分</b>(3=三次救急 / 2=二次救急)。<br>
+      KML等は名前・説明に「三次」「救命」「二次」が含まれると自動で区分します。
+    </div>
+  </div>
+  <div id="hosp-list"></div>
+  <div id="hosp-note" style="display:none;padding:10px 12px;font-size:12px;color:var(--muted);line-height:1.8;border-top:1px solid var(--border)">
+    ※所要時間は概算です(直線距離×1.4を平均40km/hで走行として計算)。<br>
+    「経路」をタップするとGoogleマップの車経路案内が開きます(要通信)。
+  </div>
+</div>
+
 <!-- MODAL -->
 <div id="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div id="modal-box">
@@ -519,6 +556,8 @@ function startGPS(){
       document.getElementById('hsi-alt-val').textContent =
         gpsAltFt!=null ? String(Math.round(gpsAltFt/10)*10) : '----';
       updateGsDisplay();
+      updateHospTab();
+      if(currentTab==='hosp') renderHospList();
       document.getElementById('gps-coords').style.color='var(--green)';
       document.getElementById('gps-coords').textContent=fmtCoord(pos.lat,'NS')+' '+fmtCoord(pos.lon,'EW');
       document.getElementById('gps-acc').textContent='±'+pos.acc+'m';
@@ -1033,6 +1072,151 @@ function loadDB(){
   }catch(e){}
 }
 
+// ── 救急病院（HOSPタブ） ──────────────────────────────────────────────────────
+let hospDB = [];          // {name,lat,lon,cls} cls: 3=三次救急, 2=二次救急, 0=区分不明
+let hospTabVisible = true;
+
+function saveHospDB(){ try{localStorage.setItem('dispatch-hosp',JSON.stringify(hospDB));}catch(e){} }
+function loadHospDB(){
+  try{
+    const d=localStorage.getItem('dispatch-hosp');
+    if(d) hospDB=JSON.parse(d);
+  }catch(e){}
+  updateHospInfo();
+}
+function updateHospInfo(){
+  const has=hospDB.length>0;
+  const info=document.getElementById('hosp-info');
+  info.style.display=has?'':'none';
+  if(has){
+    const n3=hospDB.filter(h=>h.cls===3).length, n2=hospDB.filter(h=>h.cls===2).length;
+    info.textContent=`🏥 ${hospDB.length}件登録（三次${n3} / 二次${n2} / 他${hospDB.length-n3-n2}）`;
+  }
+  document.getElementById('hosp-hint').style.display=has?'none':'';
+  document.getElementById('btn-hosp-clr').style.display=has?'block':'none';
+  document.getElementById('hosp-note').style.display=has?'block':'none';
+}
+function classifyHosp(t){
+  if(/三次|３次|3次|救命/.test(t)) return 3;
+  if(/二次|２次|2次/.test(t)) return 2;
+  return 0;
+}
+function parseHospCSV(text){
+  const res=[];
+  for(const line of text.split(/\r?\n/)){
+    if(!line.trim()) continue;
+    const cols=line.split(/[,\t]/).map(s=>s.trim().replace(/^"|"$/g,''));
+    // 緯度・経度の隣接ペアを探す（日本では経度の絶対値が緯度より大きい）
+    let lat=NaN,lon=NaN;
+    for(let i=0;i<cols.length-1;i++){
+      const a=parseFloat(cols[i]),b=parseFloat(cols[i+1]);
+      if(isFinite(a)&&isFinite(b)&&Math.abs(a)<=90&&Math.abs(b)<=180&&Math.abs(b)>Math.abs(a)){ lat=a;lon=b;break; }
+    }
+    if(isNaN(lat)) continue; // ヘッダ行など
+    const name=cols.find(c=>c && isNaN(parseFloat(c)))||'病院';
+    let cls=0;
+    for(const c of cols){
+      if(c==='3'){cls=3;break;}
+      if(c==='2'){cls=2;break;}
+    }
+    if(!cls) cls=classifyHosp(line);
+    res.push({name,lat,lon,cls});
+    if(res.length>=2000) break;
+  }
+  return res;
+}
+async function handleHospFile(e){
+  const file=e.target.files[0]; if(!file) return;
+  if(file.size>30*1024*1024){ showToast('ファイルが大きすぎます（上限30MB）',true); e.target.value=''; return; }
+  try{
+    const ext=file.name.split('.').pop().toLowerCase();
+    let items=[];
+    if(ext==='csv'){
+      items=parseHospCSV(await file.text());
+    } else if(ext==='gpx'){
+      items=parseGPX(await file.text()).map(w=>({name:w.name,lat:w.lat,lon:w.lon,cls:classifyHosp(w.name+' '+(w.desc||''))}));
+    } else if(ext==='kml' || ext==='kmz'){
+      let kmlText=null;
+      try{
+        const zip=await JSZip.loadAsync(await file.arrayBuffer());
+        const kmlFile=zip.file('doc.kml')||zip.file(/\.kml$/i)[0];
+        if(kmlFile) kmlText=await kmlFile.async('string');
+      }catch(zipErr){ /* ZIPでなければ通常KMLとして処理 */ }
+      if(!kmlText) kmlText=await file.text();
+      items=parseKML(kmlText).map(w=>({name:w.name,lat:w.lat,lon:w.lon,cls:classifyHosp(w.name+' '+(w.desc||''))}));
+    } else { showToast('CSV / KML / KMZ / GPXを選択してください',true); return; }
+    if(items.length===0){ showToast('病院データが見つかりません（フォーマット確認）',true); return; }
+    // 追記方式（名称+座標の完全一致はスキップ）
+    const key=h=>`${h.name}|${h.lat.toFixed(5)}|${h.lon.toFixed(5)}`;
+    const seen=new Set(hospDB.map(key));
+    let added=0;
+    for(const h of items){
+      if(seen.has(key(h))) continue;
+      seen.add(key(h)); hospDB.push(h); added++;
+    }
+    saveHospDB(); updateHospInfo(); renderHospList();
+    if(added===0) showToast('追加なし（すべて既存と重複）',true);
+    else showToast(`病院 ${added}件を追加（計${hospDB.length}件）`);
+  }catch(err){
+    showToast('エラー: '+err.message,true);
+    console.error(err);
+  }finally{ e.target.value=''; }
+}
+function clearHospDB(){
+  if(!confirm(`登録済みの病院 ${hospDB.length}件を削除しますか？`)) return;
+  hospDB=[]; saveHospDB(); updateHospInfo(); renderHospList();
+  showToast('病院リストをクリアしました');
+}
+// 車での概算所要時間（直線距離×道路係数1.4、平均40km/h）
+function fmtDrive(km){
+  const min=Math.round(km*1.4/40*60);
+  if(min<60) return `約${min}分`;
+  return `約${Math.floor(min/60)}時間${String(min%60).padStart(2,'0')}分`;
+}
+function renderHospList(){
+  const list=document.getElementById('hosp-list');
+  list.innerHTML='';
+  if(hospDB.length===0) return;
+  let rows=hospDB.map(h=>({...h, km: pos ? calcNM(pos.lat,pos.lon,h.lat,h.lon)*1.852 : null}));
+  if(pos) rows.sort((a,b)=>a.km-b.km);
+  rows=rows.slice(0,15); // 近い順に15件
+  for(const h of rows){
+    const row=document.createElement('div'); row.className='hosp-row';
+    const badge=document.createElement('span');
+    badge.className='hosp-badge c'+h.cls;
+    badge.textContent=h.cls===3?'3次':h.cls===2?'2次':'救急';
+    const main=document.createElement('div'); main.className='hosp-main';
+    const nm=document.createElement('div'); nm.className='hosp-name'; nm.textContent=h.name;
+    const met=document.createElement('div'); met.className='hosp-met';
+    if(h.km!=null){
+      const b1=document.createElement('b'); b1.textContent=h.km.toFixed(1)+'km';
+      const b2=document.createElement('b'); b2.textContent='車'+fmtDrive(h.km);
+      met.appendChild(b1);
+      met.appendChild(document.createTextNode(' ／ '));
+      met.appendChild(b2);
+    }else{
+      met.textContent='GPS取得待ち…';
+    }
+    main.appendChild(nm); main.appendChild(met);
+    const btn=document.createElement('button');
+    btn.className='hosp-route'; btn.textContent='経路';
+    btn.addEventListener('click',()=>{
+      window.open('https://www.google.com/maps/dir/?api=1&destination='+h.lat+','+h.lon+'&travelmode=driving','_blank','noopener');
+    });
+    row.appendChild(badge); row.appendChild(main); row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+// 30kt超で巡航中はHOSPタブを隠す（33kt超で非表示・30kt以下で再表示のヒステリシス）
+function updateHospTab(){
+  const vis = (gpsKt==null) ? true : (hospTabVisible ? gpsKt<=33 : gpsKt<=30);
+  if(vis!==hospTabVisible){
+    hospTabVisible=vis;
+    document.getElementById('tab-hosp').style.display = vis ? '' : 'none';
+    if(!vis && currentTab==='hosp') switchTab('hsi');
+  }
+}
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 let toastTimer=null;
 function showToast(msg,err=false){
@@ -1151,6 +1335,8 @@ function switchTab(tab){
   document.getElementById('map-block').style.display           = tab==='map'  ? 'block' : 'none';
   document.getElementById('import-bar').style.display          = tab==='list' ? 'block' : 'none';
   document.getElementById('wp-section').style.display          = (tab==='list' && wpDB.length>0) ? 'block' : 'none';
+  document.getElementById('hosp-section').style.display        = tab==='hosp' ? 'block' : 'none';
+  if(tab==='hosp') renderHospList();
 
   if(tab==='map'){
     initMap();
@@ -1662,6 +1848,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:'||['localhost','
 // ── Init ──────────────────────────────────────────────────────────────────────
 drawHSI(null,0,false);
 loadDB();
+loadHospDB();
 startGPS();
 switchTab('hsi'); // 初期タブ
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeAsModal();}});
